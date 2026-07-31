@@ -9,9 +9,6 @@ permissions:
 env:
   GH_TOKEN: ${{ github.token }}
 
-concurrency:
-  group: sync-upstream
-  cancel-in-progress: false
 
 jobs:
   sync:
