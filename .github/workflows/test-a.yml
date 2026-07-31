@@ -1,0 +1,16 @@
+name: Test A fetchdepth
+on: push
+permissions:
+  contents: write
+  pull-requests: write
+env:
+  GH_TOKEN: ${{ github.token }}
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create PR
+        run: gh pr create --base master --head test/a --title "test fetchdepth" --body "debug"
