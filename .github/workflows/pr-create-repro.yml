@@ -11,4 +11,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Create PR
-        run: gh pr create --base master --head pr-create-repro --title "repro test" --body "repro"
+        run: gh pr create --base master --head sync/upstream --title "repro test" --body "repro"
