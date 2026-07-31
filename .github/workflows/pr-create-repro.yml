@@ -8,6 +8,6 @@ jobs:
       pull-requests: write
     steps:
       - name: Create PR
-        run: gh pr create --base master --head pr-create-repro --title "repro test" --body "repro" --draft
+        run: gh pr create --base config/coderabbit --head pr-create-repro --title "repro test" --body "repro" --draft
         env:
           GH_TOKEN: ${{ github.token }}
