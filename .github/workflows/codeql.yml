@@ -1,9 +1,9 @@
 # Customized advanced CodeQL setup for Reforge-Commander.
 #
 # Matrix trimmed to what the repo actually ships: Java (the product, via Maven
-# autobuild so the classpath resolves and duplicate-class noise disappears) and
-# GitHub Actions YAML. The other detected languages (.tsx map data, .py dev
-# tools, one stray .h) are not analyzed.
+# autobuild so the classpath resolves and duplicate-class noise disappears).
+# The other detected languages (.tsx map data, .py dev tools, one stray .h,
+# and the handful of workflow YAMLs) are not analyzed.
 name: "CodeQL Advanced"
 
 on:
@@ -31,8 +31,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - language: actions
-          build-mode: none
         - language: java-kotlin
           # autobuild compiles via Maven, matching the Java 17 toolchain of
           # test-build.yaml, so CodeQL sees the real classpath instead of
