@@ -72,6 +72,17 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
         return makeTokenTable(createTokenTable(players, tokenScripts, finalAmount, sa), clone, triggerList, combatChanged, sa);
     }
 
+    /**
+     * Creates and configures tokens from the supplied token table, applying replacement effects and
+     * recording token-related zone changes and triggers.
+     *
+     * @param tokenTable    the token prototypes and quantities to create for each player
+     * @param clone         whether created tokens should retain the host card as their clone origin
+     * @param triggerList   the table in which token zone changes are recorded
+     * @param combatChanged tracks whether token creation changes combat state
+     * @param sa            the ability defining the token creation effect
+     * @return the token table after replacement effects have been applied
+     */
     protected TokenCreateTable makeTokenTable(TokenCreateTable tokenTable, final boolean clone, CardZoneTable triggerList, MutableBoolean combatChanged, final SpellAbility sa) {
         final Card host = sa.getHostCard();
         final Game game = host.getGame();
