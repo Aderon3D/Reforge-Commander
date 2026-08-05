@@ -181,11 +181,10 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                 if (moved == null || moved.getZone() == null) {
                     // in case token can't enter the battlefield, it isn't created
                     triggerList.put(ZoneType.None, ZoneType.None, moved);
-                    referenced = true;  // triggerList retains reference for zone-change triggers
                     continue;
                 }
+                // ponytail: triggerList is within-pass (consumed by triggerChangesZoneAll + clear), NOT durable.
                 triggerList.put(ZoneType.None, moved.getZone().getZoneType(), moved);
-                referenced = true;  // triggerList retains reference for zone-change triggers
 
                 triggerList.addToken(lki, creator.getNumTokenCreatedThisTurn() == 0);
                 creator.addTokensCreatedThisTurn(lki);
