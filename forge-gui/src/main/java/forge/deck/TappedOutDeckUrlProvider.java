@@ -13,9 +13,9 @@ final class TappedOutDeckUrlProvider implements DeckUrlProvider {
     private static final Pattern CARD_LINE = Pattern.compile("^(\\d+)x?\\s++(.+?)(?:\\s++\\(([A-Z0-9_]{2,7})\\)\\s++\\S+)?$");
     private static final Pattern TITLE = Pattern.compile("(?is)<title>\\s*+([^<]*?)\\s*+(?:\\([^<]*+MTG Deck\\))?+\\s*+</title>");
     private static final Pattern OG_TITLE = Pattern.compile("(?is)<meta\\s++property=\"og:title\"\\s++content=\"(?:MTG Deck:\\s*+)?+([^\"]*+)\"\\s*+/?>");
-    private static final Pattern MTGA_TEXTAREA = Pattern.compile("(?i)<textarea[^>]*>");
     private static final String MTGA_TEXTAREA_ID = "id=\"mtga-textarea\"";
     private static final String MTGA_TEXTAREA_CLOSE = "</textarea>";
+    private static final String MTGA_TEXTAREA_OPEN = "<textarea";
     private static final String PROVIDER_NAME = "TappedOut";
     private static final Localizer localizer = Localizer.getInstance();
 
@@ -96,16 +96,23 @@ final class TappedOutDeckUrlProvider implements DeckUrlProvider {
     }
 
     static String extractMtgaTextarea(final String html) {
-        final Matcher tagMatcher = MTGA_TEXTAREA.matcher(html);
-        while (tagMatcher.find()) {
-            if (tagMatcher.group(0).contains(MTGA_TEXTAREA_ID)) {
-                final int close = html.indexOf(MTGA_TEXTAREA_CLOSE, tagMatcher.end());
-                if (close > tagMatcher.end()) {
-                    return html.substring(tagMatcher.end(), close);
-                }
-            }
+        final int idIndex = html.indexOf(MTGA_TEXTAREA_ID);
+        if (idIndex < 0) {
+            return null;
         }
-        return null;
+        final int open = html.lastIndexOf(MTGA_TEXTAREA_OPEN, idIndex);
+        if (open < 0) {
+            return null;
+        }
+        final int openEnd = html.indexOf('>', open);
+        if (openEnd < 0 || openEnd <= idIndex) {
+            return null;
+        }
+        final int close = html.indexOf(MTGA_TEXTAREA_CLOSE, openEnd);
+        if (close < 0) {
+            return null;
+        }
+        return html.substring(openEnd + 1, close);
     }
 
     private static void appendCardLine(final StringBuilder out, final String line) {
