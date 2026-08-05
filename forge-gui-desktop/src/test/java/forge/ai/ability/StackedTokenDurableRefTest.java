@@ -82,7 +82,7 @@ public class StackedTokenDurableRefTest extends AITest {
         // With the fix: do NOT call tryStackToken for referenced tokens.
         // Token stays in cardList with its original id — no ghost.
         assertTrue(bf.getCards().contains(token));
-        assertSame(token, host.getRemembered().get(0));
+        assertSame(token, host.getRemembered().iterator().next());
     }
 
     /**
