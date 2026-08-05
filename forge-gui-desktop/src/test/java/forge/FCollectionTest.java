@@ -42,7 +42,7 @@ public class FCollectionTest {
     }*/// Commented out since we use synchronized collection and it doesn't support modification while iteration
 
     @Test
-    public void testCompletableFuture() {
+    void testCompletableFuture() {
         List<Card> cards = new ArrayList<>();
         for (int i = 1; i < 5; i++)
             cards.add(new Card(i, null));

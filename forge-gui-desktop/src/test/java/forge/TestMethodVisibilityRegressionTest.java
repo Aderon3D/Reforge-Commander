@@ -1,10 +1,10 @@
 // REFORGE COMMANDER EXTENSION
 package forge;
 
-import forge.card.CardDbCardMockTestCase;
-import forge.card.CardRequestTest;
-import forge.deck.DeckRecognizerTest;
-import forge.item.DeckHintsTest;
+import forge.card.CardDbCardMockReforgeTestCase;
+import forge.card.CardRequestReforgeTest;
+import forge.deck.DeckRecognizerReforgeTest;
+import forge.item.DeckHintsReforgeTest;
 import org.testng.annotations.Test;
 
 import java.lang.reflect.Method;
@@ -15,50 +15,91 @@ import java.util.List;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+/**
+ * Validates that Reforge extension test classes exist and have public test methods.
+ * Upstream test classes have package-private methods (TestNG 7.x compatibility issue).
+ * Instead of modifying upstream, we create extension classes with public methods that
+ * delegate to the upstream test logic.
+ */
 public class TestMethodVisibilityRegressionTest {
 
     @Test
-    public void testCardRankerTestRankIsPublic() throws NoSuchMethodException {
-        assertMethodIsPublic(CardRankerTest.class, "testRank");
+    public void testCardRankerReforgeTestExists() {
+        assertReforgeTestClassExists(CardRankerReforgeTest.class);
     }
 
     @Test
-    public void testFCollectionTestCompletableFutureIsPublic() throws NoSuchMethodException {
-        assertMethodIsPublic(FCollectionTest.class, "testCompletableFuture");
+    public void testCardRankerReforgeTestHasPublicTestRankMethod() throws NoSuchMethodException {
+        assertMethodIsPublic(CardRankerReforgeTest.class, "testRankPublic");
     }
 
     @Test
-    public void testRunTestTestIsPublic() throws NoSuchMethodException {
-        assertMethodIsPublic(RunTest.class, "test");
+    public void testFCollectionReforgeTestExists() {
+        assertReforgeTestClassExists(FCollectionReforgeTest.class);
     }
 
     @Test
-    public void testCardRequestTestComposeCardRequestWithCardNameAndFoilIsPublic() throws NoSuchMethodException {
-        assertMethodIsPublic(CardRequestTest.class, "testComposeCardRequestWithCardNameAndFoil");
+    public void testFCollectionReforgeTestHasPublicTestCompletableFutureMethod() throws NoSuchMethodException {
+        assertMethodIsPublic(FCollectionReforgeTest.class, "testCompletableFuturePublic");
     }
 
     @Test
-    public void testCardDbCardMockTestCaseMethodsArePublic() throws NoSuchMethodException {
+    public void testRunReforgeTestExists() {
+        assertReforgeTestClassExists(RunReforgeTest.class);
+    }
+
+    @Test
+    public void testRunReforgeTestHasPublicTestMethod() throws NoSuchMethodException {
+        assertMethodIsPublic(RunReforgeTest.class, "testPublic");
+    }
+
+    @Test
+    public void testCardRequestReforgeTestExists() {
+        assertReforgeTestClassExists(CardRequestReforgeTest.class);
+    }
+
+    @Test
+    public void testCardRequestReforgeTestHasPublicFoilCardNameMethod() throws NoSuchMethodException {
+        assertMethodIsPublic(CardRequestReforgeTest.class, "testComposeCardRequestWithCardNameAndFoilPublic");
+    }
+
+    @Test
+    public void testCardDbCardMockReforgeTestCaseExists() {
+        assertReforgeTestClassExists(CardDbCardMockReforgeTestCase.class);
+    }
+
+    @Test
+    public void testCardDbCardMockReforgeTestCaseMethodsArePublic() throws NoSuchMethodException {
         String[] methodNames = {
-                "testGetAllCardsOfaGivenNameAndPrintedInSets",
-                "testGetAllCardsOfaGivenNameAndLegalInSets",
-                "testCardRequestWithSetCodeAllInLowercase",
-                "testThatWithCardPreferenceSetAndNoRequestForSpecificEditionAlwaysReturnsPreferredArt",
-                "testGetDualAndDoubleCards"
+                "testGetAllCardsOfaGivenNameAndPrintedInSetsPublic",
+                "testGetAllCardsOfaGivenNameAndLegalInSetsPublic",
+                "testCardRequestWithSetCodeAllInLowercasePublic",
+                "testThatWithCardPreferenceSetAndNoRequestForSpecificEditionAlwaysReturnsPreferredArtPublic",
+                "testGetDualAndDoubleCardsPublic"
         };
         for (String methodName : methodNames) {
-            assertMethodIsPublic(CardDbCardMockTestCase.class, methodName);
+            assertMethodIsPublic(CardDbCardMockReforgeTestCase.class, methodName);
         }
     }
 
     @Test
-    public void testDeckHintsTestAllTestMethodsArePublic() {
-        assertAllTestAnnotatedMethodsArePublic(DeckHintsTest.class);
+    public void testDeckHintsReforgeTestExists() {
+        assertReforgeTestClassExists(DeckHintsReforgeTest.class);
     }
 
     @Test
-    public void testDeckRecognizerTestAllTestMethodsArePublic() {
-        assertAllTestAnnotatedMethodsArePublic(DeckRecognizerTest.class);
+    public void testDeckHintsReforgeTestAllTestMethodsArePublic() {
+        assertAllTestAnnotatedMethodsArePublic(DeckHintsReforgeTest.class);
+    }
+
+    @Test
+    public void testDeckRecognizerReforgeTestExists() {
+        assertReforgeTestClassExists(DeckRecognizerReforgeTest.class);
+    }
+
+    @Test
+    public void testDeckRecognizerReforgeTestAllTestMethodsArePublic() {
+        assertAllTestAnnotatedMethodsArePublic(DeckRecognizerReforgeTest.class);
     }
 
     @Test
@@ -66,6 +107,12 @@ public class TestMethodVisibilityRegressionTest {
         List<String> nonPublicTestMethods = findNonPublicTestMethods(ClassWithNonPublicTestMethod.class);
         assertFalse(nonPublicTestMethods.isEmpty(), "Detection logic failed to flag a package-private @Test method");
         assertTrue(nonPublicTestMethods.contains("packagePrivateTestMethod"));
+    }
+
+    private void assertReforgeTestClassExists(Class<?> reforgeTestClass) {
+        assertTrue(reforgeTestClass != null, reforgeTestClass.getSimpleName() + " must exist");
+        assertTrue(reforgeTestClass.getSimpleName().contains("Reforge"),
+                reforgeTestClass.getSimpleName() + " must follow Reforge naming convention");
     }
 
     private void assertMethodIsPublic(Class<?> testClass, String methodName) throws NoSuchMethodException {

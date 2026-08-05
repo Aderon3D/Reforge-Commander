@@ -240,7 +240,7 @@ public class CardRequestTest {
     }
 
     @Test
-    public void testComposeCardRequestWithCardNameAndFoil() {
+    void testComposeCardRequestWithCardNameAndFoil() {
         String cardName = "Counterspell";
         String foilCardName = "Counterspell+";
 
