@@ -81,11 +81,16 @@ public class StackedTokenDurableRefTest extends AITest {
         // which clears stackedTokens. Just verify both resident and a soldier copy exist.
         int soldierCount = 0;
         boolean hasResident = false;
+        boolean hasDistinctSoldier = false;
         for (Card c : bf.getCards()) {
-            if ("Test Soldier".equals(c.getName())) soldierCount++;
+            if ("Test Soldier".equals(c.getName())) {
+                soldierCount++;
+                if (c != resident) hasDistinctSoldier = true;
+            }
             if (c == resident) hasResident = true;
         }
         assertTrue("resident survives expand", hasResident);
-        assertTrue("at least 1 soldier present (resident or expanded)", soldierCount >= 1);
+        assertTrue("expansion produced a distinct Test Soldier or at least 2 soldiers",
+                hasDistinctSoldier || soldierCount >= 2);
     }
 }
