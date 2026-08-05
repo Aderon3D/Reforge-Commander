@@ -3,13 +3,11 @@ package forge.ai.ability;
 
 import forge.ai.AITest;
 import forge.card.CardType;
-import forge.card.GamePieceType;
 import forge.game.Game;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.ApiType;
 import forge.game.card.Card;
 import forge.game.player.Player;
-import forge.game.spellability.AbilityManaPart;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.PlayerZoneBattlefield;
 import forge.game.zone.ZoneType;
