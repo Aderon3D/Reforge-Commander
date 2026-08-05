@@ -10,10 +10,10 @@ import java.util.regex.Pattern;
 
 final class TappedOutDeckUrlProvider implements DeckUrlProvider {
     private static final Pattern DECK_URL = Pattern.compile("(?i)(?:^|/)mtg-decks/([^/?#]+)/?");
-    private static final Pattern CARD_LINE = Pattern.compile("^(\\d+)x?\\s+(.+?)(?:\\s+\\(([A-Z0-9_]{2,7})\\)\\s+\\S+)?$");
+    private static final Pattern CARD_LINE = Pattern.compile("^(\\d+)x?\\s++(.+?)(?:\\s++\\(([A-Z0-9_]{2,7})\\)\\s++\\S+)?$");
     private static final Pattern TITLE = Pattern.compile("(?is)<title>\\s*+([^<]*?)\\s*+(?:\\([^<]*+MTG Deck\\))?+\\s*+</title>");
     private static final Pattern OG_TITLE = Pattern.compile("(?is)<meta\\s++property=\"og:title\"\\s++content=\"(?:MTG Deck:\\s*+)?+([^\"]*+)\"\\s*+/?>");
-    private static final Pattern MTGA_EXPORT = Pattern.compile("(?is)<textarea\\b[^>]*\\bid=\"mtga-textarea\"[^>]*>([^<]*)</textarea>");
+    private static final Pattern MTGA_EXPORT = Pattern.compile("(?is)<textarea\\b[^>]*+\\bid=\"mtga-textarea\"[^>]*+>([^<]*)</textarea>");
     private static final String PROVIDER_NAME = "TappedOut";
     private static final Localizer localizer = Localizer.getInstance();
 
