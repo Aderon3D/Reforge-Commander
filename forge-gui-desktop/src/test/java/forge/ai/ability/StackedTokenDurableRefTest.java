@@ -72,9 +72,10 @@ public class StackedTokenDurableRefTest extends AITest {
         Card fold1 = makeSoldier(game, p);
         bf.add(fold1);
         assertTrue(bf.tryStackToken(fold1));
-        // ponytail: getCards() triggers expandStacks() which clears stackedTokens.
-        // Check stackedTokens BEFORE any getCards() call.
+        // ponytail: add() triggers onChanged() → updateZoneForView → getCards() → expandStacks()
+        // which clears stackedTokens. Capture stack ref before any further add().
         assertEquals(1, bf.getStackedTokens().size());
+        Card prototype = bf.getStackedTokens().get(0).getPrototype();
 
         Card resident = makeSoldier(game, p);
         bf.add(resident);
@@ -82,10 +83,9 @@ public class StackedTokenDurableRefTest extends AITest {
 
         boolean hasResident = false;
         boolean hasPrototype = false;
-        StackedTokenCard stack = bf.getStackedTokens().get(0);
         for (Card c : bf.getCardsUnexpanded()) {
             if (c == resident) hasResident = true;
-            if (c == stack.getPrototype()) hasPrototype = true;
+            if (c == prototype) hasPrototype = true;
         }
         assertTrue("resident token in unexpanded view", hasResident);
         assertTrue("stack prototype in unexpanded view", hasPrototype);
