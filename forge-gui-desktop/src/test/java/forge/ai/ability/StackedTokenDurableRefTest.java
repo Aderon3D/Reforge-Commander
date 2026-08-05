@@ -58,7 +58,7 @@ public class StackedTokenDurableRefTest extends AITest {
         host.addRemembered(token);
 
         assertTrue(bf.getCards().contains(token));
-        assertSame(token, host.getRemembered().iterator().next());
+        assertSame(token, host.getFirstRemembered());
     }
 
     @Test
