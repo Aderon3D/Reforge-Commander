@@ -1,4 +1,11 @@
-// REFORGE COMMANDER EXTENSION
+/*
+ * REFORGE COMMANDER EXTENSION
+ *
+ * Regression test for TestNG method visibility.
+ *
+ * Guards against TestNG @Test methods reverting to package-private visibility
+ * (which TestNG 7.x silently skips instead of running).
+ */
 package forge;
 
 import forge.card.CardDbCardMockTestCase;
