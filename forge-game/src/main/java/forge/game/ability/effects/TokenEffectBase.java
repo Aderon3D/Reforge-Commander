@@ -142,6 +142,7 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                 tok.setGameTimestamp(timestamp);
                 tok.setGamePieceType(GamePieceType.TOKEN);
 
+                boolean referenced = false;
                 // do effect stuff with the token
                 if (sa.hasParam("TokenTapped")) {
                     tok.setTapped(true);
