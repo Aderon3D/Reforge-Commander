@@ -3,7 +3,6 @@ package forge.ai.ability;
 
 import forge.ai.AITest;
 import forge.card.CardType;
-import forge.game.card.StackedTokenCard;
 import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.player.Player;
