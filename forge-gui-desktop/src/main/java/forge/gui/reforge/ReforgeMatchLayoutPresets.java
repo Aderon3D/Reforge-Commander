@@ -65,7 +65,23 @@ public final class ReforgeMatchLayoutPresets {
     public static void apply(final int players) throws IOException {
         final Path dest = Path.of(ForgeConstants.MATCH_LAYOUT_FILE.userPrefLoc);
         Files.createDirectories(dest.toAbsolutePath().getParent());
-        Files.writeString(dest, layoutFor(players));
+
+        // Write to temporary file, then atomically replace destination
+        final Path temp = dest.resolveSibling(dest.getFileName() + ".tmp");
+        try {
+            Files.writeString(temp, layoutFor(players));
+            try {
+                Files.move(temp, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                                       java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (final java.nio.file.AtomicMoveNotSupportedException ex) {
+                // Fallback: non-atomic replacement if atomic move unsupported
+                Files.move(temp, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (final IOException ex) {
+            // Clean up temp file on failure
+            Files.deleteIfExists(temp);
+            throw ex;
+        }
     }
 
     /** Delete the user's match layout so the stock 2-player default is used again. */
