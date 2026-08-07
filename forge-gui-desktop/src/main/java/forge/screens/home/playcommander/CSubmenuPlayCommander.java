@@ -47,7 +47,8 @@ public enum CSubmenuPlayCommander implements ICDoc, IMenuProvider {
         final List<JMenu> menus = new ArrayList<>();
         final JMenu layoutMenu = new JMenu("Battlefield Layout");
         for (int n = 2; n <= ReforgeMatchLayoutPresets.MAX_PLAYERS; n++) {
-            layoutMenu.add(item(n + " Players", e -> applyPreset(n)));
+            final int players = n;
+            layoutMenu.add(item(players + " Players", e -> applyPreset(players)));
         }
         layoutMenu.addSeparator();
         layoutMenu.add(item("Restore Default Layout", e -> restoreDefault()));
