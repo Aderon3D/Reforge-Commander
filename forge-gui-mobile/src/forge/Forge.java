@@ -132,6 +132,18 @@ public class Forge implements ApplicationListener {
     private static Localizer localizer;
     private static boolean desktopAutoOrientation = true;
 
+    /**
+     * Initializes the shared application instance and configures platform-specific device and interface information.
+     *
+     * @param hwInfo              hardware and operating-system information, or {@code null}
+     * @param clipboard0          clipboard implementation used by the application
+     * @param deviceAdapter0      platform device adapter
+     * @param assetDir0           application asset directory
+     * @param androidOrientation whether the device uses portrait orientation
+     * @param isTablet            whether the device is a tablet
+     * @param AndroidAPI          Android API level
+     * @return                   the shared application instance
+     */
     public static ApplicationListener getApp(HWInfo hwInfo, Clipboard clipboard0, IDeviceAdapter deviceAdapter0, String assetDir0, boolean androidOrientation, boolean isTablet, int AndroidAPI) {
         if (app == null) {
             app = new Forge();

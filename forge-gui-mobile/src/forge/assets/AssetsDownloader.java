@@ -35,6 +35,12 @@ public class AssetsDownloader {
     private final static ImmutableList<String> downloadIgnoreExit = ImmutableList.of("Download", "Ignore", "Exit");
     private final static ImmutableList<String> downloadExit = ImmutableList.of("Download", "Exit");
 
+    /**
+     * Checks for application updates and, on Android, downloads required resource files.
+     *
+     * @param exited  whether the application has already exited
+     * @param runnable callback to continue application startup when no update is required
+     */
     public static void checkForUpdates(boolean exited, Runnable runnable) {
         if (exited)
             return;
