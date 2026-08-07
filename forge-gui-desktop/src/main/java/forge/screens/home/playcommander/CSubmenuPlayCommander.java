@@ -42,6 +42,11 @@ public enum CSubmenuPlayCommander implements ICDoc, IMenuProvider {
         lobby.initialize();
     }
 
+    /**
+     * Creates the Commander submenu for selecting or restoring battlefield layouts.
+     *
+     * @return the available Commander menus
+     */
     @Override
     public List<JMenu> getMenus() {
         final List<JMenu> menus = new ArrayList<>();
@@ -56,12 +61,24 @@ public enum CSubmenuPlayCommander implements ICDoc, IMenuProvider {
         return menus;
     }
 
+    /**
+     * Creates a menu item with the specified label and action listener.
+     *
+     * @param text   the menu item's label
+     * @param action the listener invoked when the item is selected
+     * @return       the configured menu item
+     */
     private static JMenuItem item(final String text, final ActionListener action) {
         final JMenuItem mi = new JMenuItem(text);
         mi.addActionListener(action);
         return mi;
     }
 
+    /**
+     * Applies the canonical battlefield layout for the specified player count.
+     *
+     * @param players the number of players supported by the layout preset
+     */
     private static void applyPreset(final int players) {
         try {
             ReforgeMatchLayoutPresets.apply(players);
@@ -73,6 +90,9 @@ public enum CSubmenuPlayCommander implements ICDoc, IMenuProvider {
         }
     }
 
+    /**
+     * Restores the stock two-player battlefield layout and displays the operation result.
+     */
     private static void restoreDefault() {
         try {
             ReforgeMatchLayoutPresets.restoreDefault();

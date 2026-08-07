@@ -20,7 +20,12 @@ public final class ReforgeMatchLayoutPresets {
     public static final int MAX_PLAYERS = 8;
 
     /** Build a match layout with {@code players} battlefield zones, 2..8. */
-    // doc:12a PARTIAL
+    /**
+     * Generates a Forge match-layout XML document for the requested player count.
+     *
+     * @param players the requested number of players, clamped to the supported range of 1 through 8
+     * @return the generated match-layout XML
+     */
     public static String layoutFor(final int players) {
         final int n = Math.max(1, Math.min(players, MAX_PLAYERS));
         final double leftW = 0.2, rightW = 0.2;
@@ -51,6 +56,16 @@ public final class ReforgeMatchLayoutPresets {
         return sb.toString();
     }
 
+    /**
+     * Appends a layout cell with the specified position, dimensions, and document identifiers.
+     *
+     * @param sb   the XML builder to which the cell is appended
+     * @param x    the cell's horizontal position
+     * @param y    the cell's vertical position
+     * @param w    the cell's width
+     * @param h    the cell's height
+     * @param docs the document identifiers included in the cell
+     */
     private static void railCell(final StringBuilder sb, final double x, final double y,
                                  final double w, final double h, final String... docs) {
         sb.append("\t<cell x=\"").append(x).append("\" y=\"").append(y)
@@ -61,7 +76,12 @@ public final class ReforgeMatchLayoutPresets {
         sb.append("\t</cell>\n");
     }
 
-    /** Write the N-player canonical layout into the user's match layout file. */
+    /**
+     * Writes the canonical match layout for the requested player count to the user's match-layout file.
+     *
+     * @param players the requested number of players
+     * @throws IOException if the layout cannot be written or replaced
+     */
     public static void apply(final int players) throws IOException {
         final Path dest = Path.of(ForgeConstants.MATCH_LAYOUT_FILE.userPrefLoc);
         Files.createDirectories(dest.toAbsolutePath().getParent());
