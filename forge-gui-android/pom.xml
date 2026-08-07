@@ -100,6 +100,12 @@
     </build>
     <dependencies>
         <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>7.10.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.robolectric</groupId>
             <artifactId>android-all</artifactId>
             <!-- update version: 16-robolectric-13921718 but needs to fix Android 16 Edge to edge enforcement -->
@@ -711,7 +717,7 @@
             <!-- test build signed with embedded debug.keystore from uber-signer -->
             <id>android-dev-build</id>
             <properties>
-                <app.id.dev>forge.app.dev</app.id.dev>
+                <app.id.dev>dev.reforge.commander.dev</app.id.dev>
                 <packaging.type>apk</packaging.type>
             </properties>
             <build>
