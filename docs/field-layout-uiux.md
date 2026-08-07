@@ -1,155 +1,352 @@
-# Field Layout: Zone Presets & Window UX (issue #88)
+# UX Design Document — Reforge Commander
 
-Design research for the two biggest playtest complaints:
-
-1. **No zone presets** — especially with more than 2 players, battlefield zones were
-   left unplaced or poorly arranged.
-2. **Clunky, unreliable window resize/move** — dragging field windows to resize and
-   rearrange felt janky.
-
-Goal (per request): take Blender's resizable/custom-window layout as the reference,
-keep the good Forge bits (draggable name tag, docking look), and deliver a document
-plus the best additive implementation.
+Complete research and design for improving Reforge Commander's user experience.
+Covers battlefield layout, card interactions, window management, animations, and
+keyboard shortcuts.
 
 ---
 
-## 1. Where Forge stands today (verified in code)
+## 1. Problem Statement
 
-Forge already ships a Blender-*like* docking framework — we are not writing one; we
-are fixing its gaps. All of it lives in `forge-gui-desktop/.../forge/gui/framework/`
-and is **upstream-pristine** (see `docs/upstream-sync.md`), so we can only extend, not edit.
+Playtesters identified two high-impact UX problems:
 
-- **`DragCell`** — one layout rectangle; holds tabbed docs; has borders
-  (`getBorderRight()`, `getBorderBottom()`).
-- **`DragTab`** — the draggable name-tag (players like this). Paints selected/inactive
-  rounded pills; adds `SRearrangingUtil.getRearrangeClickEvent()` + motion listener.
-- **`SRearrangingUtil`** — move: on press computes a drop zone (BODY/RIGHT/TOP/
-  BOTTOM/LEFT) from cursor vs each cell's bounds, shows a bounds preview overlay,
-  then splits/merges cells on release; grows neighbours to fill holes; persists.
-- **`SResizingUtil`** — resize: 5px edge panels change cursor to E/N-resize; drag moves
-  the whole group sharing the edge; min-sizes W=100/H=50; pixel-perfect rounding on
-  end. Uses `MouseUtil.lockCursor()` (the janky part).
-- **`SLayoutIO`** — persistence. Per-screen XML (`<layout>` → `<cell x/y/w/h>` →
-  `<doc>NAME</doc>`). Match = `ForgeConstants.MATCH_LAYOUT_FILE`. `revertLayout()`
-  reloads from the user file; `save()` debounced 100ms.
+1. **No zone presets** — especially with >2 players, battlefield zones were
+   unplaced or poorly arranged. The stock `match.xml` only places `FIELD_0` and
+   `FIELD_1`, so 3-4 player pods leave extra battlefields in stub cells.
 
-What's actually missing vs Blender, matching the player complaints:
-- **Presets / workspaces** — Blender's *Workspaces* = named layouts. Forge has exactly
-  one static default (`match.xml`, hard-coded for **2 players**: only `FIELD_0` and
-  `FIELD_1` are placed in the XML). At 3-4 players the extra `FIELD_n` docs fall into a
-  stump int cell — the direct root cause of complaint #1.
-- **Player-count canonical arrangements** — the "resizing the 4+ board" table in
-  `docs/development.md` (2×2 grid, triangle, etc.) is designed but never implemented.
-- **Cancel affordance** — Blender cancels rearrange/join on `Esc`/`RMB`. No `Esc`
-  abort in the current drag/resize.
-- **Smoothness** — `MouseUtil.lockCursor()` + 5px edge-only resize zones are the janky
-  parts; there is no hit-testing with a double-headed arrow that always shows, no
-  `Ctrl`-snap / shift-move-aligned, and no snapping.
+2. **Clunky, unreliable window resize/move** — dragging field windows to resize
+   and rearrange felt janky. 5px edge hit-zones, `MouseUtil.lockCursor()` fights
+   the user, and there's no cancel affordance.
+
+Beyond those two, general UX gaps exist: no card animations, no hover feedback,
+minimal keyboard shortcuts, and a dated visual feel despite the FlatLaf dark theme.
 
 ---
 
-## 2. Design targets (Blender-inspired)
+## 2. Cross-Game Research (what works in modern card games)
 
-- **Area = a rectangle you can always see.** Non-overlapping; never modal-blocked.
-- **Resize**: hover border → double-arrow cursor (blinking), LMB drag. `Ctrl` snaps to
-  convenient sizes; `Shift` drags aligned borders together.
-- **Dock**: corner "cross" cursor. Drag inward to split (direction by drag), drag into
-  another cell to join, drag into a cell's center to replace, drag outward to a new window.
-  `Esc`/`RMB` cancels.
-- **Workspaces = presets**: named, one-click, save-current-as.
-- **Maximize/Restore** (`Ctrl+Space`) — focus a single field, restore later.
+### MTG Arena patterns
+- **Hover-to-zoom**: card image appears instantly on hover, positioned to avoid
+  covering the hovered zone. No click required.
+- **Play animation**: newly played card appears center-screen at 2x for ~1.5s
+  before sliding to its zone. Both players read the card.
+- **Phase strip**: horizontal bar with illuminated current phase, clickable dots
+  for priority stops.
+- **Priority system**: stop on upkeep/draw/main/combat/end, full control (hold
+  Ctrl), pass turn (Shift+Enter).
+- **Stack visualization**: vertical column in center, newest on top, click to
+  inspect, resolution animates downward.
+- **Playable glow**: cards you can cast/activate get a colored border.
 
-Only the *preset* pillar and the *player-count arrangement* are additive today
-(they only read/write `match.user` XML, which is exactly the `SLayoutIO` contract).
-The dock mechanics (split/join/replace, thick hit-zones, snap, Esc-cancel, maximize)
-require **editing upstream framework classes** — out of additive scope, shaped as an
-upstream-facing RUG proposal in §5.
+### Hearthstone patterns
+- **Drag-to-play**: drag card from hand to board, valid targets highlight.
+  Natural, physical-feeling interaction.
+- **Battlecry splash**: keyword abilities flash on screen when triggered.
+- **Board slots**: fixed positions for minions, auto-arranged.
 
----
+### Yu-Gi-Oh Master Duel
+- **Chain visualization**: stacked card images with chain numbers.
+- **Zone highlights**: valid zones glow when a card can be played there.
 
-## 3. The additive implementation (shipped here)
+### Pokemon TCG Live
+- **Simple board**: minimal zones, large card display.
+- **Attachment drag**: energy cards drag-attached to Pokemon.
 
-Cannot touch `gui/framework/*` or `VField`/`CMatchUI`/`VMatchUI`. So this slice
-ships **data-level presets** — the highest-impact, lowest-risk fix for complaint #1:
+### Legends of Runeterra
+- **Spell stack**: visual column with resolve order.
+- **Priority glow**: cards pulse when you have priority.
 
-- **`forge.gui.reforge.ReforgeMatchLayoutPresets`** (new, `REFORGE COMMANDER EXTENSION`):
-  - `layoutFor(int players)` → canonical `match.xml` XML with **N battlefield zones
-    stacked** across the field band, every `FIELD_0..FIELD_{n-1}` placed, one `HAND_0`
-    band below, and the stock left/right rails unchanged. Generalizes the 2-player
-    default exactly (n=2 reproduces the proportions of the hard-coded file).
-  - `apply(players)` writes the generated XML to `MATCH_LAYOUT_FILE.userPrefLoc`
-    (it carries `serial=""`, equal to the default file's missing serial, so
-    `SLayoutIO.loadLayout` never the "older template" reset prompt).
-  - `restoreDefault()` deletes the user file → stock 2-player layout returns.
-- **Menu**: `CSubmenuPlayCommander.getMenus()` (already an `IMenuProvider`, previously
-  returned an empty list) now exposes **Battlefield Reformate → "2 Players … 8 Players"
-  and "Restore Default Layout"**. Additive edit to a Reforge-owned class.
+### Balatro / Slay the Spire (single-player roguelikes)
+- **Card fan**: hand displayed as a fanned arc.
+- **Joker/item display**: persistent side panel with compact info.
+- **Minimal chrome**: the game board IS the UI.
 
-Because the pre-match `update()` installs this menu provider whenever the Commander
-lobby is shown, the player picks the layout for their pod size *before* the match; the
-match then loads it on start. `VSubmenuPlayCommander` wraps a shared
-`VSubmenuConstructed` lobby — no dependencies on it.
-
-Limits (honest):
-- It's a **pre-match** chooser; live hot-swap mid-match needs a match-screen hook
-  (the screen is upstream) — Phase 2 below.
-- It applies a *fixed canonical arrangement* per player count; per-cell drag/dock
-  already lets the player refine inside a match (the framework handles that).
-- `VMatchUI`/`VField` (fixed 85%-width proportions) are unchanged; the Per-Player
-  *card scaling* idea in `dev.md` 9c still needs the upstream layout change.
-
----
-
-## 4. Roadmap notes (docstatus)
-
-- Marker `// doc:12a PARTIAL` on `ReforgeMatchLayoutPresets.layoutFor`.
-- Dev-doc row added matching that status.
-- Priority: **P2** (confidence UX/lo-valued); real 4-player scaling remains 9c.
+### Cross-game patterns worth adopting
+| Pattern | Frequency | Impact |
+|---------|-----------|--------|
+| Hover-to-zoom (instant) | Universal | P1 — eliminates "what does this do?" |
+| Play animation (splash) | MTGA, HS, YGO | P1 — both players read the card |
+| Phase strip with stops | MTGA, MTGO | P1 — core gameplay clarity |
+| Priority glow/pulse | MTGA, LoR | P1 — "it's your turn" signal |
+| Drag-to-play | HS, Pokemon | P2 — natural interaction |
+| Stack visualization | MTGA, LoR, YGO | P2 — complex game state clarity |
+| Board-aware zoom | MTGA | P2 — avoids covering critical zones |
 
 ---
 
-## 5. Upstream proposal (when we can touch the framework)
+## 3. Current Codebase Infrastructure
 
-Full Blender-grade UX belongs in the shared classes. Written here so the plan is
-captured even though today's hardware is additive-only:
+### 3a. Theming and colors
 
-1. **Thicker, always-live resize hit-zones** (≥ 8px, no per-cell border toggle), cursor
-   set on `mouseMoved` not just `mouseEntered`.
-2. **Replace `MouseUtil.lockCursor()`** with progressive resistance + min-total–size
-   clamping so borders never fall off-screen (the "unreliable" fix).
-3. **`Ctrl`-snap pass + `Shift`-linked-edge** during drag in `SResizingUtil.resizeX/Y`.
-4. **`Esc`/`RMB` cancel** in `SRearrangingUtil` (a cancel mouse listener added in
-   `rearrange()` start; abort restores prior rough bounds).
-5. **Workspace presets UI**: a small "View ▸ Layout ▸ Preset…" popup in the match bar
-   (or `CSubmenuPlayCommandCenter` if ever extended) wired to `SLayoutIO.saveWindowLayout()`
-   snapshot + the generator here.
-6. **Per-player autosize** in `VField`/`SResizingUtil.resizeWindow()`: derive
-   `FIELD_*` cell h/w from the number of board docs so 3-4 players get a 2-3 →
-   triangle / 2×2 automatically — closes dev.md 9c.
+**ReforgeTheme.java** (`forge-gui/src/main/java/forge/localinstance/skin/ReforgeTheme.java`)
+— 15 color constants, shared across desktop (FlatLaf) and mobile (LibGDX):
 
-Each is small and localized; none changes file formats or network state. File them as
-upstream sync *extension* so the sync stays conflict-free (additive classes only).
+| Constant | RGB | Use |
+|----------|-----|-----|
+| BG | (26,26,46) | Main background |
+| BG2 | (36,37,56) | Secondary background |
+| TEXT | (240,240,240) | Text |
+| BORDER | (74,74,106) | Borders, inactive phase |
+| HOVER | (58,58,92) | Hover highlight |
+| ACTIVE | (255,90,90) | Red accent, active phase |
+| INACTIVE | (90,90,122) | Inactive enabled |
+| ZEBRA | (42,42,66) | Zebra striping |
+| ORANGE | (247,147,26) | Active phase enabled |
+| ORANGE_DIM | (179,106,14) | Active phase disabled |
+| OVERLAY | (0,0,0,128) | Semi-transparent overlay |
+
+Mapped to 15 `FSkinProp` keys. UIManager defaults set by
+`FSkin.applyCommanderDarkTheme()`: MenuBar, Menu, MenuItem, PopupMenu,
+TabbedPane, ComboBox, Button, ToolTip, Separator, RadioButtonMenuItem,
+CheckBoxMenuItem — all dark-themed.
+
+**Leverage**: any new Swing widget inherits the dark theme automatically.
+New colors should go through `FSkinProp` slots.
+
+### 3b. Animation framework
+
+**Animation.java** (`forge-gui-desktop/.../arcane/util/Animation.java`)
+— core animation framework:
+
+```java
+new Animation(durationMs) {
+    protected void onStart() { /* initial state */ }
+    protected void update(float pct) { /* 0..1 interpolation */ repaint(); }
+    protected void onEnd() { /* final state */ }
+}.run();
+```
+
+Uses `java.util.Timer` at ~33fps (30ms/frame). Existing animations:
+
+| Animation | Duration | Framework |
+|-----------|----------|-----------|
+| Card tap | 200ms | `Animation` + `java.util.Timer` |
+| Card move | configurable | `Animation` + `java.util.Timer` |
+| Nav bar slide | 300ms total | `javax.swing.Timer`, 2px/tick |
+| Panel flash | 400ms (5x80ms) | `SDisplayUtil.remind()` + `java.util.Timer` |
+| Phase press | 90ms | `javax.swing.Timer` |
+
+**Leverage**: use `Animation` for card entry, fade-in, glow pulse, and
+board-aware zoom transitions.
+
+### 3c. Card rendering pipeline
+
+**CardPanel.java** (1183 lines) — the card widget:
+- Anti-aliased `Graphics2D`, rounded corners (`ROUNDED_CORNER_SIZE = 0.1f`)
+- Color-coded outlines: yellow (autotap), magenta (selected), green (hovered),
+  cyan (flash), zone-colored, white/gold/silver (known editions)
+- Inner highlight: white = selectable, configurable color = weakly-selectable
+- Overlays: lock icons, ability icons, group badges ("x3"), hotkey digits,
+  zone banners, foil effects, non-selectable darkening (alpha 0.6)
+- `hotkeyDigit` badge infrastructure exists (`setHotkeyDigit`, `drawHotkeyDigitBadge`,
+  `isBadgeHit`) — **unused** in match view. Ready for Ctrl+digit selection.
+
+**PlayArea.java** (1318 lines) — battlefield layout:
+- Binary-search card width optimization
+- Typed rows: lands, tokens, creatures, others
+- `CardStackRow` → `CardStack` → `CardPanel` hierarchy
+- Configurable max stack depth (1-10)
+- Combat sort: attackers/blockers positioned by opponent
+
+**CardPanelContainer.java** (470 lines) — mouse event dispatch:
+- Hover tracking with green border on hovered card
+- Left/right click dispatch to `CardPanelMouseListener`
+- Mouse wheel zoom (opens `CardZoomer`)
+- Middle-click zoom
+- Drag-and-drop with 10px threshold
+
+**CardZoomer.java** (329 lines) — overlay card viewer:
+- Triggered by mouse wheel, middle-click, or keyboard
+- Full-size card image in `FOverlay`
+- Flip/DFC toggle via Ctrl
+- 200-250ms cooldown to prevent accidental triggers
+
+### 3d. Keyboard shortcuts
+
+**KeyboardShortcuts.java** (488 lines) — 20 shortcuts via `InputMap`/`ActionMap`:
+
+| Action | Default |
+|--------|---------|
+| Show Stack | configured |
+| Show Combat | configured |
+| Show Console | configured |
+| Show Dev Panel | configured |
+| Undo | configured |
+| Concede | configured |
+| End Turn | configured |
+| Alpha Strike | configured |
+| Toggle Targeting Overlay | configured |
+| Auto-Yield (Always Yes) | configured |
+| Auto-Yield (Always No) | configured |
+| Yield Options | configured |
+| Auto-Pass/Stop All | configured |
+| Macro Record | configured |
+| Macro Next Action | configured |
+| Macro Repeat | configured |
+| Card Zoom | configured |
+| Show Hotkeys | configured |
+| Toggle Panel Tabs | configured |
+| Toggle Card Overlays | configured |
+
+Keys stored as space-separated `KeyEvent` codes in preferences. Framework
+supports Ctrl+ and Shift+ modifiers.
+
+### 3e. Docking framework (upstream)
+
+| Class | Role |
+|-------|------|
+| `DragCell` | Layout rectangle, holds tabbed docs, has borders |
+| `DragTab` | Draggable name tag, rounded pill painting |
+| `SRearrangingUtil` | Move: dropzone computation, split/merge cells |
+| `SResizingUtil` | Resize: 5px edge panels, min-size clamping |
+| `SLayoutIO` | XML persistence, `revertLayout()` hot-reload |
+
+The `hotkeyDigit` badge infrastructure on `CardPanel` is ready for use —
+the rendering (`drawHotkeyDigitBadge`) and hit detection (`isBadgeHit`)
+exist but no code assigns digits during a match.
 
 ---
 
-## 6. Files touched (additive audit)
+## 4. Proposed Improvements
 
-| File | Change | Status |
-|------|--------|--------|
-| `forge-gui-desktop/.../gui/reforge/ReforgeMatchLayoutPresets.java` | new (write schedule in exact SLayoutIO schema) | done |
-| `forge-gui-desktop/.../home/playcommander/CSubmenuPlayCommander.java getMenus()` | added "Battlefield Layout" menu | done |
-| `docs/development.md` | §12 + priority row | done |
-| upstream `gui/framework/*`, `VField`, `CMatchUI`, `VMatchUI`, `match.xml` | **UNTOUCHED** | by policy |
+### 12a — Field Layout Presets (DONE)
+
+`ReforgeMatchLayoutPresets` generates canonical per-player layouts in the
+exact `SLayoutIO` XML schema. `CSubmenuPlayCommander` menu exposes
+"2 Players".."8 Players" + "Restore Default".
+
+### 12b — Smooth Docking (Blender-grade)
+
+**Goal**: resize/move that doesn't fight the user.
+
+| Change | Current | Proposed |
+|--------|---------|----------|
+| Hit zones | 5px edge panels | 8-12px, always visible, cursor change on `mouseMoved` |
+| Cursor lock | `MouseUtil.lockCursor()` | Remove; use standard resize cursors |
+| Min size | W=100, H=50 | Increase to W=150, H=80 for readability |
+| Cancel | None | `Esc`/RMB aborts resize/rearrange, restores prior bounds |
+| Snap | None | `Ctrl` snaps to grid (quarter-cell increments) |
+| Linked edges | None | `Shift` drags adjacent borders together |
+| Maximize | None | `Ctrl+Space` maximizes focused cell, restores on repeat |
+
+**Files**: `SResizingUtil.java`, `SRearrangingUtil.java` (upstream, now
+editable per user directive).
+
+### 12c — Card Animations
+
+**Goal**: cards feel alive, not static.
+
+| Animation | Trigger | Duration | Implementation |
+|-----------|---------|----------|----------------|
+| Play splash | Card enters battlefield | 1.5s | `Animation`: scale 1x→2x→1x, center screen, then slide to position |
+| Token spawn | Token enters battlefield | 300ms | `Animation`: fade-in + scale 0→1 |
+| Card death | Card leaves battlefield | 300ms | `Animation`: fade-out + scale 1→0 |
+| Glow pulse | Card becomes playable | 1s repeat | `Animation`: border alpha oscillate 0.3→1.0 |
+| Stack resolve | Top item resolves | 400ms | `Animation`: slide down + fade-out |
+| Tap/untap | Tap toggle | 200ms | Already exists (`Animation.tapCardToggle`) |
+
+**Files**: `CardPanel.java` (add animation hooks), `PlayArea.java` (coordinate
+entry animations), new `CardAnimations.java` utility class.
+
+### 12d — Hover & Focus Improvements
+
+**Goal**: instant feedback, no clicking needed.
+
+| Feature | Current | Proposed |
+|---------|---------|----------|
+| Card zoom | Wheel/click only | Add 500ms hover delay → zoom overlay |
+| Board-aware zoom | Not implemented | Position zoom to avoid covering hand/battlefield |
+| Tooltip | Standard Swing tooltip | Custom HTML tooltip with oracle text + stats |
+| Priority pulse | `SDisplayUtil.remind()` flash | Reuse for "your turn" and "you have priority" |
+
+**Files**: `CardPanelContainer.java` (hover delay), `CardZoomer.java`
+(board-aware positioning), `VPrompt.java` (priority pulse trigger).
+
+### 12e — Keyboard Shortcuts Expansion
+
+**Goal**: power users never touch the mouse.
+
+| Shortcut | Action | Implementation |
+|----------|--------|----------------|
+| `Ctrl+1..9` | Select battlefield card N | Use existing `hotkeyDigit` infra on `CardPanel` |
+| `Ctrl+Space` | Maximize/restore focused cell | `SResizingUtil` maximize toggle |
+| `F1` | Toggle card overlays | Already exists (`SHORTCUT_CARDOVERLAYS`) |
+| `F2` | Toggle hotkey digit badges | New `KeyboardShortcuts` entry |
+| `Shift+Enter` | Pass turn | Already exists (`SHORTCUT_ENDTURN`) |
+| `Ctrl+Z` | Undo | Already exists (`SHORTCUT_UNDO`) |
+
+**Files**: `KeyboardShortcuts.java` (add entries), `CardPanel.java` (assign
+digits), `SResizingUtil.java` (maximize toggle).
+
+### 12f — Visual Polish
+
+**Goal**: modern look without rewrite.
+
+| Change | Effort | Impact |
+|--------|--------|--------|
+| Card hover glow animation | 0.5 day | Cards feel responsive |
+| Rounded corners on all panels | 0.5 day | Consistent modern aesthetic |
+| Drop shadows on card zoom | 0.5 day | Depth perception |
+| Phase strip gradient | 0.5 day | Visual hierarchy |
+| Button hover effects | 0.25 day | Interactive feel |
+
+**Files**: `CardPanel.java`, new `ReforgeUIUtils.java` for shared painting
+utilities.
+
+---
+
+## 5. Implementation Plan
+
+### Phase 1 (done): Layout presets
+- `ReorgeMatchLayoutPresets.java` — canonical per-player layouts
+- `CSubmenuPlayCommander.java` — "Battlefield Layout" menu
+- Status: **DONE** (`// doc:12a PARTIAL`)
+
+### Phase 2: Smooth docking + card animations
+- `SResizingUtil.java` — thick hit-zones, remove lockCursor, Esc-cancel
+- `SRearrangingUtil.java` — Ctrl-snap, Shift-linked, Esc-cancel
+- `CardAnimations.java` — new utility for play/death/spawn animations
+- `CardPanel.java` — animation hooks in paint pipeline
+- Status: **OPEN** (`// doc:12b OPEN`)
+
+### Phase 3: Hover/focus + keyboard shortcuts
+- `CardPanelContainer.java` — hover delay for zoom
+- `CardZoomer.java` — board-aware positioning
+- `KeyboardShortcuts.java` — Ctrl+digit, F2, Ctrl+Space
+- `CardPanel.java` — hotkey digit assignment during match
+- Status: **OPEN** (`// doc:12c OPEN`)
+
+### Phase 4: Visual polish
+- `ReforgeUIUtils.java` — shared painting utilities
+- `CardPanel.java` — hover glow, drop shadows
+- `PhaseLabel.java` — gradient improvements
+- Status: **OPEN** (`// doc:12d OPEN`)
+
+---
+
+## 6. Upstream Sync Impact
+
+Editing upstream framework classes (`SResizingUtil`, `SRearrangingUtil`,
+`SLayoutIO`, `VField`, `CardPanel`, `PlayArea`) creates merge conflicts
+on upstream sync. Mitigation:
+
+- Changes are localized and well-commented
+- No file format changes (XML schema unchanged)
+- No network state changes
+- Document each edit in `docs/upstream-sync.md` touched-upstream list
+- Upstream diffs are small enough to rebase manually
+
+The user confirmed: additive-only is a preference for compatibility, not a
+hard rule when a genuine improvement is possible.
 
 ---
 
 ## 7. Verification
 
-- XML produced by `layoutFor(n)` round-trips through `SLayoutIO.readLayout`'s schema
-  (checked: cell attrs `x/y/w/h`, `<doc>` per doc id).
-- `serial=""` equals the default file's resolved serial → no reset prompt.
-- No local `mvn` in this repo; CI (`test-build`, both JDK matrix) + CodeQL are the
-  gate. A tiny TestNG case can be added under
-  `forge-gui-desktop/src/test/.../ReforgeMatchLayoutPresetsTest.java` asserting
-  `layoutFor(n)` contains exactly n `FIELD_<0..n-1>` docs and valid Cell entries — the
-  "smallest thing that fails if the logic breaks."
+- `tools/doc-status.sh` must pass (markers match dev.md)
+- Docking: resize, rearrange, cancel, snap all work in 2P and 4P games
+- Animations: card play, death, tap all smooth at 30fps, no jank
+- Hover: zoom appears after 500ms delay, positioned to avoid covering zones
+- Keyboard: Ctrl+digit selects cards, Ctrl+Space maximizes/restores
+- No regressions in existing match view functionality
+- Upstream sync: document all non-additive changes in upstream-sync.md
