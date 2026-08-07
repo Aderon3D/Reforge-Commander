@@ -18,7 +18,7 @@ import forge.gui.reforge.ReforgeMatchLayoutPresets;
 import forge.menus.IMenuProvider;
 import forge.menus.MenuUtil;
 import forge.screens.home.CLobby;
-import forge.util.gui.SOptionPane;
+import forge.gui.util.SOptionPane;
 
 public enum CSubmenuPlayCommander implements ICDoc, IMenuProvider {
 
