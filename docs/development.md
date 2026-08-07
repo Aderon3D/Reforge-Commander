@@ -381,6 +381,21 @@ Missing: no game-state fingerprinting, no repeat detection, no shortcut mechanis
 
 ---
 
+## 12. Field Layout Presets & Window UX (#88)
+
+Playtesters reported two battlefield UI problems: no zone presets (especially beyond
+2 players) and clunky/unreliable field window resize/move. Research + full design in
+`docs/field-layout-uiux.md` (Blender workspace/area model as reference). The docking
+framework itself (`forge/gui/framework/*`) is upstream-pristine — only Reforge-owned
+classes may change, so the shipped slice is data-level presets.
+
+| # | Gap | Impact | Fix | Status |
+|---|-----|--------|-----|--------|
+| 12a | No zone presets; stock `match.xml` only places `FIELD_0`/`FIELD_1`, so 3-4 player pods leave battlefields unplaced | Field windows don't respect the board when 2+ opponents join | Additive `ReforgeMatchLayoutPresets` (generates a canonical layout for 2..8 players in the exact `SLayoutIO` XML schema, writes `MATCH_LAYOUT_FILE.userPrefLoc`, restores default on demand) + a "Battlefield Layout" menu in `CSubmenuPlayCommander` | **PARTIAL** — presets + player-count arrangement done; mid-match hot-swap needs a match-screen hook (upstream) |
+| 12b | Resize/move feel clunky (`MouseUtil.lockCursor()`, 5px edge hit-zones, no cancel) | Drag-to-resize fights the user at the edges | Upstream proposal (thick hit-zones, snap, `Esc`-cancel, maximize/restore) — captured in `docs/field-layout-uiux.md` §5; out of additive scope | open |
+
+---
+
 ## Priority Matrix
 
 | Priority | Item | Effort | Value |
@@ -438,3 +453,5 @@ Missing: no game-state fingerprinting, no repeat detection, no shortcut mechanis
 | P2 | 11g — Auto-yield system (#51) | 3-4 days | MTGO-style trigger yields; kills repetitive-trigger fatigue |
 | P3 | 11h — CR 720 shortcut proposal protocol (#52) | 1-2 weeks | Paper-grade loop declaration with accept/lower/interrupt/object |
 | P3 | 11i — Slow-play timer + AFK draw (#53) | 3-4 days | Auto-pass on timeout; 3 timeouts → draw |
+| P2 | 12a — Field layout presets + player-count arrangements (#88) | 1-2 days | Fixes unplaced battlefields at 3+ players — **PARTIAL: presets + canonical layouts shipped; hot-swap open** |
+| P3 | 12b — Blender-grade dock UX (snap, Esc-cancel, maximize) (#88) | 3-4 days | Upstream proposal only; blocked by additive-only policy |
