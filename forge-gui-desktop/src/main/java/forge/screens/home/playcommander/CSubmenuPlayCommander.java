@@ -18,7 +18,7 @@ import forge.gui.reforge.ReforgeMatchLayoutPresets;
 import forge.menus.IMenuProvider;
 import forge.menus.MenuUtil;
 import forge.screens.home.CLobby;
-import forge.util.gui.SOptionPane;
+import forge.toolbox.FOptionPane;
 
 public enum CSubmenuPlayCommander implements ICDoc, IMenuProvider {
 
@@ -65,21 +65,21 @@ public enum CSubmenuPlayCommander implements ICDoc, IMenuProvider {
     private static void applyPreset(final int players) {
         try {
             ReforgeMatchLayoutPresets.apply(players);
-            SOptionPane.showMessageDialog("Canonical " + players + "-player battlefield layout applied.\n"
+            FOptionPane.showMessageDialog("Canonical " + players + "-player battlefield layout applied.\n"
                     + "It takes effect when the next match starts.",
                     "Battlefield Layout");
         } catch (final IOException ex) {
-            SOptionPane.showErrorDialog(ex.getLocalizedMessage(), "Battlefield Layout");
+            FOptionPane.showErrorDialog(ex.getLocalizedMessage(), "Battlefield Layout");
         }
     }
 
     private static void restoreDefault() {
         try {
             ReforgeMatchLayoutPresets.restoreDefault();
-            SOptionPane.showMessageDialog("Stock 2-player battlefield layout restored.",
+            FOptionPane.showMessageDialog("Stock 2-player battlefield layout restored.",
                     "Battlefield Layout");
         } catch (final IOException ex) {
-            SOptionPane.showErrorDialog(ex.getLocalizedMessage(), "Battlefield Layout");
+            FOptionPane.showErrorDialog(ex.getLocalizedMessage(), "Battlefield Layout");
         }
     }
 }
