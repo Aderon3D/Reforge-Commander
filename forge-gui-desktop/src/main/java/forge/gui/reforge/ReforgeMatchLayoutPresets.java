@@ -19,9 +19,7 @@ public final class ReforgeMatchLayoutPresets {
 
     public static final int MAX_PLAYERS = 8;
 
-    /** Build a match layout with {@code players} battlefield zones, 2..8. */
-    // doc:12a DONE
-    public static String layoutFor(final int players) {
+    public static String layoutFor(final int players) { // doc:12a DONE
         final int n = Math.max(1, Math.min(players, MAX_PLAYERS));
         final double leftW = 0.2, rightW = 0.2;
         final double bodyX = 0.2, bodyW = 0.6;

@@ -229,8 +229,7 @@ exact `SLayoutIO` XML schema. `CSubmenuPlayCommander` menu exposes
 | Linked edges | None | `Shift` drags adjacent borders together |
 | Maximize | None | `Ctrl+Space` maximizes focused cell, restores on repeat |
 
-**Files**: `SResizingUtil.java`, `SRearrangingUtil.java` (upstream, now
-editable per user directive).
+**Files**: `SResizingUtil.java`, `SRearrangingUtil.java` (upstream Forge classes).
 
 ### 12c — Card Animations
 
@@ -298,37 +297,50 @@ utilities.
 ## 5. Implementation Plan
 
 ### Phase 1 (done): Layout presets
-- `ReorgeMatchLayoutPresets.java` — canonical per-player layouts
+- `ReforgeMatchLayoutPresets.java` — canonical per-player layouts
 - `CSubmenuPlayCommander.java` — "Battlefield Layout" menu
-- Status: **DONE** (`// doc:12a PARTIAL`)
+- Status: **DONE** (`// doc:12a DONE`)
 
-### Phase 2: Smooth docking + card animations
+### Phase 2: Smooth docking
 - `SResizingUtil.java` — thick hit-zones, remove lockCursor, Esc-cancel
 - `SRearrangingUtil.java` — Ctrl-snap, Shift-linked, Esc-cancel
-- `CardAnimations.java` — new utility for play/death/spawn animations
-- `CardPanel.java` — animation hooks in paint pipeline
 - Status: **OPEN** (`// doc:12b OPEN`)
 
-### Phase 3: Hover/focus + keyboard shortcuts
-- `CardPanelContainer.java` — hover delay for zoom
-- `CardZoomer.java` — board-aware positioning
-- `KeyboardShortcuts.java` — Ctrl+digit, F2, Ctrl+Space
-- `CardPanel.java` — hotkey digit assignment during match
+### Phase 3: Card animations
+- `CardAnimations.java` — new utility for play/death/spawn animations
+- `CardPanel.java` — animation hooks in paint pipeline
 - Status: **OPEN** (`// doc:12c OPEN`)
 
-### Phase 4: Visual polish
+### Phase 4: Hover & focus improvements
+- `CardPanelContainer.java` — hover delay for zoom
+- `CardZoomer.java` — board-aware positioning
+- Status: **OPEN** (`// doc:12d OPEN`)
+
+### Phase 5: Keyboard shortcuts expansion
+- `KeyboardShortcuts.java` — Ctrl+digit, F2, Ctrl+Space
+- `CardPanel.java` — hotkey digit assignment during match
+- Status: **OPEN** (`// doc:12e OPEN`)
+
+### Phase 6: Visual polish
 - `ReforgeUIUtils.java` — shared painting utilities
 - `CardPanel.java` — hover glow, drop shadows
 - `PhaseLabel.java` — gradient improvements
-- Status: **OPEN** (`// doc:12d OPEN`)
+- Status: **OPEN** (`// doc:12f OPEN`)
 
 ---
 
-## 6. Upstream Sync Impact
+## 6. Upstream Sync Impact & Reforge Extension Strategy
+
+**Reforge extension strategy**: Java changes to upstream Forge must be additive-only
+whenever possible. Prefer extending existing Forge classes (creating new Reforge
+subclasses) instead of modifying upstream files directly. When creating Reforge
+extension classes, include a `/* REFORGE COMMANDER EXTENSION` header comment at
+the top of each file to clearly mark it as Reforge-specific code.
 
 Editing upstream framework classes (`SResizingUtil`, `SRearrangingUtil`,
 `SLayoutIO`, `VField`, `CardPanel`, `PlayArea`) creates merge conflicts
-on upstream sync. Mitigation:
+on upstream sync. When upstream modifications are genuinely necessary for
+improvements, mitigation strategies:
 
 - Changes are localized and well-commented
 - No file format changes (XML schema unchanged)
@@ -336,17 +348,20 @@ on upstream sync. Mitigation:
 - Document each edit in `docs/upstream-sync.md` touched-upstream list
 - Upstream diffs are small enough to rebase manually
 
-The user confirmed: additive-only is a preference for compatibility, not a
-hard rule when a genuine improvement is possible.
+However, always prefer the additive extension strategy first: create new Reforge
+classes with the `REFORGE COMMANDER EXTENSION` header rather than modifying
+upstream files.
 
 ---
 
 ## 7. Verification
 
 - `tools/doc-status.sh` must pass (markers match dev.md)
-- Docking: resize, rearrange, cancel, snap all work in 2P and 4P games
-- Animations: card play, death, tap all smooth at 30fps, no jank
-- Hover: zoom appears after 500ms delay, positioned to avoid covering zones
-- Keyboard: Ctrl+digit selects cards, Ctrl+Space maximizes/restores
+- 12a: Layout presets for 2-8 players work correctly; "Restore Default" resets to stock
+- 12b: Docking resize, rearrange, cancel, snap all work in 2P and 4P games
+- 12c: Animations (card play, death, tap) smooth at 30fps, no jank
+- 12d: Hover zoom appears after 500ms delay, positioned to avoid covering zones
+- 12e: Keyboard shortcuts (Ctrl+digit selects cards, Ctrl+Space maximizes/restores)
+- 12f: Visual polish (hover glow, drop shadows, rounded panels) applied consistently
 - No regressions in existing match view functionality
 - Upstream sync: document all non-additive changes in upstream-sync.md

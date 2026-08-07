@@ -386,9 +386,11 @@ Missing: no game-state fingerprinting, no repeat detection, no shortcut mechanis
 Playtesters reported two battlefield UI problems: no zone presets (especially beyond
 2 players) and clunky/unreliable field window resize/move. Comprehensive research +
 design in `docs/field-layout-uiux.md` (Blender workspace/area model as reference,
-cross-game UX patterns, codebase infrastructure analysis). Upstream framework classes
-are now editable for genuine improvements (per user directive — additive-only is a
-preference, not a hard rule).
+cross-game UX patterns, codebase infrastructure analysis).
+
+**Reforge extension strategy**: Java changes must be additive-only whenever possible.
+Prefer extending existing Forge classes instead of modifying upstream files. Reforge
+Java classes should include a `/* REFORGE COMMANDER EXTENSION` header comment.
 
 | # | Gap | Impact | Fix | Status |
 |---|-----|--------|-----|--------|
