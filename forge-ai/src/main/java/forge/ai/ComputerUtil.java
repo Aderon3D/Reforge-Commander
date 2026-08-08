@@ -335,9 +335,14 @@ public class ComputerUtil {
                         return ComputerUtilCard.getWorstLand(landsInPlay);
                     }
                 }
-                final CardCollection sacMeList = CardLists.filter(typeList, c -> (c.hasSVar("SacMe") && Integer.parseInt(c.getSVar("SacMe")) == priority)
-                        || (priority == 1 && shouldSacrificeThreatenedCard(ai, c, sa))
-                );
+                final CardCollection sacMeList = CardLists.filter(typeList, c -> {
+                    // SVar-based SacMe check (existing)
+                    if (c.hasSVar("SacMe") && Integer.parseInt(c.getSVar("SacMe")) == priority) return true;
+                    // Scryfall tag-based sacrifice boost: cards tagged "synergy-sacrifice-self" get priority 5
+                    if (priority <= 5 && CardTagIndex.getInstance().hasTag(c.getName(), CardTagIndex.TAG_SYNERGY_SACRIFICE_SELF)) return true;
+                    // Priority 1 fallback: threatened cards
+                    return priority == 1 && shouldSacrificeThreatenedCard(ai, c, sa);
+                });
                 if (!sacMeList.isEmpty()) {
                     CardLists.shuffle(sacMeList);
                     return sacMeList.getFirst();
