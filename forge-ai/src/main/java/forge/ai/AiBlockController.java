@@ -21,6 +21,7 @@ import java.util.*;
 import java.util.function.Predicate;
 
 import forge.card.CardStateName;
+import forge.game.CardTagIndex;
 import forge.game.GameEntity;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.ApiType;
@@ -241,7 +242,8 @@ public class AiBlockController {
                     if ((b.hasKeyword(Keyword.UNDYING) && b.getCounters(CounterEnumType.P1P1) == 0) || b.hasSVar("SacMe")
                             || (b.hasKeyword(Keyword.VANISHING) && b.getCounters(CounterEnumType.TIME) == 1)
                             || (b.hasKeyword(Keyword.FADING) && b.getCounters(CounterEnumType.FADE) == 0)
-                            || b.hasSVar("EndOfTurnLeavePlay")) {
+                            || b.hasSVar("EndOfTurnLeavePlay")
+                            || CardTagIndex.getInstance().hasTag(b.getName(), CardTagIndex.TAG_SYNERGY_SACRIFICE_SELF)) {
                         blocker = b;
                         break;
                     }
@@ -250,7 +252,8 @@ public class AiBlockController {
                 // 4a.Blockers that are profitable to sacrifice even in the event of an unfavorable block
                 for (Card b : blockers) {
                     if ((b.hasSVar("SacMe") && Integer.parseInt(b.getSVar("SacMe")) > 3) ||
-                            (b.hasSVar("SacMeAfterBlock") && !attacker.hasKeyword(Keyword.TRAMPLE) && !attacker.hasKeyword(Keyword.BANDING))) {
+                            (b.hasSVar("SacMeAfterBlock") && !attacker.hasKeyword(Keyword.TRAMPLE) && !attacker.hasKeyword(Keyword.BANDING)) ||
+                            CardTagIndex.getInstance().hasTag(b.getName(), CardTagIndex.TAG_SYNERGY_SACRIFICE_SELF)) {
                         blocker = b;
                         if (!ComputerUtilCombat.canDestroyAttacker(ai, attacker, blocker, combat, false)) {
                             blockedButUnkilled.add(attacker);
