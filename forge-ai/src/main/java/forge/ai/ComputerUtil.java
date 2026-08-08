@@ -2161,14 +2161,24 @@ public class ComputerUtil {
         // Hands with early plays (1-2 CMC) + late threats score better than all-expensive hands
         if (tagIndex.size() > 0 && landSize >= 2) {
             int earlyPlays = 0, lateThreats = 0;
+            boolean hasSacrificeOutlet = false, hasDeathTrigger = false;
+            boolean hasEquipment = false, hasCreatureToEquip = false;
             for (Card c : handList) {
                 if (c.isLand()) continue;
                 int cmc = c.getManaCost().getCMC();
                 if (cmc >= 1 && cmc <= 2) earlyPlays++;
                 if (cmc >= 4 && c.isCreature()) lateThreats++;
+                Set<String> tags = tagIndex.getTags(c.getName());
+                if (tags.contains(CardTagIndex.TAG_SACRIFICE_OUTLET)) hasSacrificeOutlet = true;
+                if (tags.contains("death-trigger") || tags.contains("leaves-creature")) hasDeathTrigger = true;
+                if (tags.contains(CardTagIndex.TAG_EQUIPMENT)) hasEquipment = true;
+                if (c.isCreature()) hasCreatureToEquip = true;
             }
             if (earlyPlays >= 2) score += 5;
             if (earlyPlays >= 1 && lateThreats >= 1) score += 3;
+            // combo synergy bonus: sacrifice+death trigger, or equipment+creature
+            if (hasSacrificeOutlet && hasDeathTrigger) score += 6;
+            if (hasEquipment && hasCreatureToEquip) score += 4;
         }
 
         final CardCollectionView castables = CardLists.filter(handList, c -> c.getManaCost().getCMC() <= 0 || c.getManaCost().getCMC() <= landSize);
