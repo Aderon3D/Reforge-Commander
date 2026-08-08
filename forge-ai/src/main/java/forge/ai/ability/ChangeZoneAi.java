@@ -6,6 +6,7 @@ import com.google.common.collect.Multiset;
 
 import forge.ai.*;
 import forge.card.CardType;
+import forge.game.CardTagIndex;
 import forge.card.MagicColor;
 import forge.game.Game;
 import forge.game.GameEntity;
@@ -1594,6 +1595,44 @@ public class ChangeZoneAi extends SpellAbilityAi {
 
             // Tutor for the first key card in the list, since the list should be in priority order
             if (keycardFound != null) return keycardFound;
+
+            // ponytail: context-aware tutor targeting via Scryfall tags
+            // Score candidates by how well they fill the AI's current gaps
+            CardTagIndex tagIdx = CardTagIndex.getInstance();
+            if (tagIdx.size() > 0 && !fetchList.allMatch(CardPredicates.LANDS)) {
+                CardCollectionView bf = decider.getCardsIn(ZoneType.Battlefield);
+                boolean hasRemoval = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), Set.of(
+                        CardTagIndex.TAG_SPOT_REMOVAL, CardTagIndex.TAG_SWEEPER)));
+                boolean hasDraw = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), Set.of(
+                        CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW)));
+                boolean hasRamp = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), Set.of(
+                        CardTagIndex.TAG_RAMP, CardTagIndex.TAG_MANA_DORK)));
+                boolean hasThreat = bf.anyMatch(c2 -> c2.isCreature()
+                        && ComputerUtilCard.evaluateCreature(c2) > 120);
+
+                Card bestCtx = null;
+                int bestScore = -1;
+                for (Card candidate : fetchList) {
+                    if (candidate.getType().isLand()) continue;
+                    int ctxScore = 0;
+                    Set<String> tags = tagIdx.getTags(candidate.getName());
+                    if (!hasRemoval && tags.contains(CardTagIndex.TAG_SWEEPER)) ctxScore += 30;
+                    if (!hasRemoval && tags.contains(CardTagIndex.TAG_SPOT_REMOVAL)) ctxScore += 20;
+                    if (!hasDraw && tags.contains(CardTagIndex.TAG_DRAW_ENGINE)) ctxScore += 25;
+                    if (!hasDraw && tags.contains(CardTagIndex.TAG_PURE_DRAW)) ctxScore += 20;
+                    if (!hasRamp && tags.contains(CardTagIndex.TAG_RAMP)) ctxScore += 15;
+                    if (!hasThreat && candidate.isCreature()) {
+                        ctxScore += ComputerUtilCard.evaluateCreature(candidate) / 20;
+                    }
+                    if (ctxScore > bestScore) {
+                        bestScore = ctxScore;
+                        bestCtx = candidate;
+                    }
+                }
+                if (bestCtx != null && bestScore >= 20) {
+                    return bestCtx;
+                }
+            }
 
             // Does AI need a land?
             // The logic here seems wrong if the decider isn't the same as the player

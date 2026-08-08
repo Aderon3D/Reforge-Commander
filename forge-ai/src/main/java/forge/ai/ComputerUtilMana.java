@@ -22,6 +22,7 @@ import forge.game.ability.ApiType;
 import forge.game.card.*;
 import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
+import forge.game.CardTagIndex;
 import forge.game.cost.*;
 import forge.game.keyword.Keyword;
 import forge.game.mana.Mana;
@@ -122,6 +123,25 @@ public class ComputerUtilMana {
             }
             if (CombatUtil.canBlock(card)) {
                 score += 13;
+            }
+        }
+
+        // ponytail: Scryfall tag-based mana source prioritization
+        // Tap pure mana dorks first, mana rocks second, preserve sources with other value
+        CardTagIndex tagIdx = CardTagIndex.getInstance();
+        if (tagIdx.size() > 0) {
+            String name = card.getName();
+            if (tagIdx.hasTag(name, CardTagIndex.TAG_MANA_DORK)) {
+                score -= 8; // prefer tapping pure mana creatures
+            }
+            if (tagIdx.hasTag(name, CardTagIndex.TAG_MANA_ROCK)) {
+                score -= 4; // prefer tapping rocks over utility artifacts
+            }
+            // Preserve sources with high-value attached roles
+            if (tagIdx.hasAnyTag(name, Set.of(
+                    CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
+                    CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_TUTOR_CREATURE))) {
+                score += 10;
             }
         }
 
