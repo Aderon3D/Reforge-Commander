@@ -3,6 +3,9 @@ package forge.game;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,11 +18,16 @@ import java.util.Set;
  * Built from Scryfall bulk data (oracle-tags + oracle-cards JSONL files).
  *
  * File format: one line per card, "CardName|tag1,tag2,tag3"
+ *
+ * REFORGE COMMANDER EXTENSION
  */
 public class CardTagIndex {
     private static CardTagIndex instance;
 
     // ponytail: volatile + lazy init, safe read after init
+    // Known limitation: concurrent load() calls could race; getInstance() returns last-wins.
+    // Upgrade path: use AtomicReference<Map> + compareAndSet for lock-free single-load guarantee,
+    // or require explicit init before multi-threaded access (e.g., in game startup).
     private volatile Map<String, Set<String>> tags = Collections.emptyMap();
 
     // --- AI-relevant tag constants ---
@@ -120,7 +128,7 @@ public class CardTagIndex {
         return false;
     }
 
-    // ponytail: threat multiplier based on Scryfall tags
+    // threat multiplier based on Scryfall tags
     // returns 1.0 for no adjustment, >1.0 for high-threat targets
     public float getThreatMultiplier(String cardName) {
         Set<String> cardTags = tags.getOrDefault(cardName, Collections.emptySet());
@@ -135,7 +143,7 @@ public class CardTagIndex {
         return Math.min(multiplier, 2.5f);
     }
 
-    // ponytail: sacrifice willingness boost based on tags
+    // sacrifice willingness boost based on tags
     // returns 0 if not a sacrifice target, 1-6 (SacMe scale) if it is
     public int getSacMeBoost(String cardName) {
         Set<String> cardTags = tags.getOrDefault(cardName, Collections.emptySet());
@@ -153,7 +161,7 @@ public class CardTagIndex {
         return boost;
     }
 
-    // ponytail: archetype classification for deck-level play pattern tuning
+    // archetype classification for deck-level play pattern tuning
     public DeckArchetype classifyDeckArchetype(Map<String, Integer> cardCounts) {
         int aggroScore = 0, controlScore = 0, comboScore = 0, total = 0;
 
