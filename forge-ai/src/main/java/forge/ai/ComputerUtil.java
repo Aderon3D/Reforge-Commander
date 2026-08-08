@@ -2157,6 +2157,20 @@ public class ComputerUtil {
             score += 10;
         }
 
+        // ponytail: curve quality bonus via Scryfall tags
+        // Hands with early plays (1-2 CMC) + late threats score better than all-expensive hands
+        if (tagIndex.size() > 0 && landSize >= 2) {
+            int earlyPlays = 0, lateThreats = 0;
+            for (Card c : handList) {
+                if (c.isLand()) continue;
+                int cmc = c.getManaCost().getCMC();
+                if (cmc >= 1 && cmc <= 2) earlyPlays++;
+                if (cmc >= 4 && c.isCreature()) lateThreats++;
+            }
+            if (earlyPlays >= 2) score += 5;
+            if (earlyPlays >= 1 && lateThreats >= 1) score += 3;
+        }
+
         final CardCollectionView castables = CardLists.filter(handList, c -> c.getManaCost().getCMC() <= 0 || c.getManaCost().getCMC() <= landSize);
 
         score += castables.size() * 2;
