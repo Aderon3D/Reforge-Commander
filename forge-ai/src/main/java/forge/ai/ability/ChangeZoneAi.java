@@ -38,6 +38,10 @@ import java.util.Map.Entry;
 import java.util.stream.Collectors;
 
 public class ChangeZoneAi extends SpellAbilityAi {
+    private static final Set<String> TAGS_REMOVAL = Set.of(CardTagIndex.TAG_SPOT_REMOVAL, CardTagIndex.TAG_SWEEPER);
+    private static final Set<String> TAGS_DRAW = Set.of(CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW);
+    private static final Set<String> TAGS_RAMP = Set.of(CardTagIndex.TAG_RAMP, CardTagIndex.TAG_MANA_DORK);
+
     /*
      * This class looks horribly convoluted with hidden/known + CanPlay/Drawback/Trigger
      * and static functions like chooseCardToHiddenOriginChangeZone(). It might be a good
@@ -1596,17 +1600,13 @@ public class ChangeZoneAi extends SpellAbilityAi {
             // Tutor for the first key card in the list, since the list should be in priority order
             if (keycardFound != null) return keycardFound;
 
-            // ponytail: context-aware tutor targeting via Scryfall tags
-            // Score candidates by how well they fill the AI's current gaps
+            // ponytail: 4 anyMatch calls scan battlefield per tutor; batch into single pass if profiling shows cost
             CardTagIndex tagIdx = CardTagIndex.getInstance();
             if (tagIdx.size() > 0 && !fetchList.allMatch(CardPredicates.LANDS)) {
                 CardCollectionView bf = decider.getCardsIn(ZoneType.Battlefield);
-                boolean hasRemoval = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), Set.of(
-                        CardTagIndex.TAG_SPOT_REMOVAL, CardTagIndex.TAG_SWEEPER)));
-                boolean hasDraw = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), Set.of(
-                        CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW)));
-                boolean hasRamp = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), Set.of(
-                        CardTagIndex.TAG_RAMP, CardTagIndex.TAG_MANA_DORK)));
+                boolean hasRemoval = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), TAGS_REMOVAL));
+                boolean hasDraw = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), TAGS_DRAW));
+                boolean hasRamp = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), TAGS_RAMP));
                 boolean hasThreat = bf.anyMatch(c2 -> c2.isCreature()
                         && ComputerUtilCard.evaluateCreature(c2) > 120);
 

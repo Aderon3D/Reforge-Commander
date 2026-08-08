@@ -436,7 +436,7 @@ public class ComputerUtilAbility {
                 p += 9;
             }
 
-            // ponytail: Scryfall tag-based spell priority — play card advantage and ramp early
+            // doc:spell-priority-boosts DONE
             if (source != null) {
                 CardTagIndex tagIdx = CardTagIndex.getInstance();
                 if (tagIdx.size() > 0) {

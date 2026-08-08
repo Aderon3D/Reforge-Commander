@@ -52,6 +52,11 @@ import java.util.stream.Collectors;
 public class ComputerUtilMana {
     private final static boolean DEBUG_MANA_PAYMENT = false;
 
+    private static final Set<String> TAGS_PRESERVE_FROM_TAP = Set.of(
+        CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
+        CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_TUTOR_CREATURE
+    );
+
     public static boolean canPayManaCost(ManaCostBeingPaid cost, final SpellAbility sa, final Player ai, final boolean effect) {
         //check copy of cost so it doesn't modify the exist cost being paid
         cost = new ManaCostBeingPaid(cost);
@@ -126,8 +131,7 @@ public class ComputerUtilMana {
             }
         }
 
-        // ponytail: Scryfall tag-based mana source prioritization
-        // Tap pure mana dorks first, mana rocks second, preserve sources with other value
+        // ponytail: tag lookup is O(1) hashmap; skip if profiling shows measurable cost in mana payment loop
         CardTagIndex tagIdx = CardTagIndex.getInstance();
         if (tagIdx.size() > 0) {
             String name = card.getName();
@@ -138,9 +142,7 @@ public class ComputerUtilMana {
                 score -= 4; // prefer tapping rocks over utility artifacts
             }
             // Preserve sources with high-value attached roles
-            if (tagIdx.hasAnyTag(name, Set.of(
-                    CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
-                    CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_TUTOR_CREATURE))) {
+            if (tagIdx.hasAnyTag(name, TAGS_PRESERVE_FROM_TAP)) {
                 score += 10;
             }
         }
@@ -796,13 +798,14 @@ public class ComputerUtilMana {
                 // subtract mana from mana pool
                 manapool.payManaFromAbility(sa, cost, saPayment);
 
+                // need to consider if another use is now prevented
+                if (!cost.isPaid() && saPayment.isActivatedAbility() && !saPayment.getRestrictions().canPlay(saPayment.getHostCard(), saPayment)) {
+                    sourcesForShards.values().removeIf(s -> s == saPayment);
+                }
+
                 if (hasConverge) {
                     // hack to prevent converge re-using sources
                     sourcesForShards.values().removeIf(CardTraitPredicates.isHostCard(saPayment.getHostCard()));
-                } else if (!cost.isPaid() && saPayment.isActivatedAbility() && !saPayment.canPlay()) {
-                    // need to consider if another use is now prevented
-                    sourcesForShards.values().removeIf(s -> s == saPayment ||
-                            (s.getHostCard().equals(saPayment.getHostCard()) && !s.canPlay()));
                 }
             }
         }

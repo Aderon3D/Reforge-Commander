@@ -1588,7 +1588,6 @@ public class AiAttackController {
                         sa = t.ensureAbility();
                         if (c.getController().isAI()) {
                             PlayerControllerAi aic = ((PlayerControllerAi) c.getController().getController());
-                            sa.setActivatingPlayer(c.getController());
                             if (!aic.getAi().doTrigger(sa, false)) {
                                 missTarget = true;
                                 break;

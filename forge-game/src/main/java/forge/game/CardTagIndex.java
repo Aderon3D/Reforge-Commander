@@ -1,8 +1,11 @@
+// REFORGE COMMANDER EXTENSION
 package forge.game;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -17,9 +20,8 @@ import java.util.Set;
  * File format: one line per card, "CardName|tag1,tag2,tag3"
  */
 public class CardTagIndex {
-    private static CardTagIndex instance;
+    private static volatile CardTagIndex instance;
 
-    // ponytail: volatile + lazy init, safe read after init
     private volatile Map<String, Set<String>> tags = Collections.emptyMap();
 
     // --- AI-relevant tag constants ---
@@ -72,17 +74,22 @@ public class CardTagIndex {
 
     private static final CardTagIndex EMPTY = new CardTagIndex();
 
-    public static synchronized CardTagIndex getInstance() {
-        return instance != null ? instance : EMPTY;
+    public static CardTagIndex getInstance() {
+        final CardTagIndex i = instance;
+        return i != null ? i : EMPTY;
     }
 
     public static synchronized void load(String txtPath) {
+        if (txtPath == null) {
+            instance = null;
+            return;
+        }
         instance = new CardTagIndex();
         instance.loadFromFile(txtPath);
     }
 
     private void loadFromFile(String path) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
+        try (BufferedReader reader = Files.newBufferedReader(Paths.get(path), StandardCharsets.UTF_8)) {
             Map<String, Set<String>> result = new HashMap<>(36000);
             String line;
             while ((line = reader.readLine()) != null) {
@@ -100,7 +107,7 @@ public class CardTagIndex {
             this.tags = Collections.unmodifiableMap(result);
             System.out.println("CardTagIndex: loaded " + tags.size() + " cards with tags from " + path);
         } catch (IOException e) {
-            System.err.println("CardTagIndex: failed to load " + path + " — " + e.getMessage());
+            System.err.println("CardTagIndex: failed to load " + path + " - " + e.getMessage());
         }
     }
 
@@ -120,8 +127,6 @@ public class CardTagIndex {
         return false;
     }
 
-    // ponytail: threat multiplier based on Scryfall tags
-    // returns 1.0 for no adjustment, >1.0 for high-threat targets
     public float getThreatMultiplier(String cardName) {
         Set<String> cardTags = tags.getOrDefault(cardName, Collections.emptySet());
         if (cardTags.isEmpty()) return 1.0f;
@@ -135,8 +140,6 @@ public class CardTagIndex {
         return Math.min(multiplier, 2.5f);
     }
 
-    // ponytail: sacrifice willingness boost based on tags
-    // returns 0 if not a sacrifice target, 1-6 (SacMe scale) if it is
     public int getSacMeBoost(String cardName) {
         Set<String> cardTags = tags.getOrDefault(cardName, Collections.emptySet());
         if (cardTags.isEmpty()) return 0;
@@ -153,7 +156,6 @@ public class CardTagIndex {
         return boost;
     }
 
-    // ponytail: archetype classification for deck-level play pattern tuning
     public DeckArchetype classifyDeckArchetype(Map<String, Integer> cardCounts) {
         int aggroScore = 0, controlScore = 0, comboScore = 0, total = 0;
 
@@ -164,13 +166,13 @@ public class CardTagIndex {
 
             total += count;
             for (String tag : cardTags) {
-                if (tag.equals("evasion") || tag.equals("attacking-matters") || tag.equals("haste")) {
+                if (tag.equals(TAG_EVASION) || tag.equals("attacking-matters") || tag.equals("haste")) {
                     aggroScore += count;
                 }
                 if (HIGH_THREAT_TAGS.contains(tag) || tag.equals("counterspell-reusable") || tag.equals("lockdown-creature")) {
                     controlScore += count;
                 }
-                if (tag.equals("sacrifice-outlet-creature") || tag.equals("synergy-graveyard-cast")) {
+                if (tag.equals(TAG_SACRIFICE_OUTLET) || tag.equals(TAG_GRAVEYARD)) {
                     comboScore += count;
                 }
             }

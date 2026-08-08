@@ -82,6 +82,12 @@ import java.util.stream.Collectors;
  */
 public class ComputerUtil {
 
+    private static final Set<String> TAGS_SACRIFICE_PROTECT = Set.of(
+        CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
+        CardTagIndex.TAG_ANTHEM, CardTagIndex.TAG_TUTOR_CREATURE,
+        CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_HATEBEAR
+    );
+
     public static boolean handlePlayingSpellAbility(final Player ai, SpellAbility sa, Consumer<SpellAbility> chooseTargets) {
         final Card source = sa.getHostCard();
         final Game game = source.getGame();
@@ -364,13 +370,10 @@ public class ComputerUtil {
                     if (card.isCreature() && ComputerUtilCard.evaluateCreature(card) > maxCreatureEval) {
                         return false;
                     }
-                    // ponytail: protect high-value tagged permanents from generic sacrifice
+                    // ponytail: heuristic filter, 6-tag set is small enough to allocate per-call; hoist if profiling shows it matters
                     CardTagIndex tagIdx = CardTagIndex.getInstance();
                     if (tagIdx.size() > 0 && !tagIdx.hasTag(card.getName(), CardTagIndex.TAG_SYNERGY_SACRIFICE_SELF)) {
-                        if (tagIdx.hasAnyTag(card.getName(), Set.of(
-                                CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
-                                CardTagIndex.TAG_ANTHEM, CardTagIndex.TAG_TUTOR_CREATURE,
-                                CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_HATEBEAR))) {
+                        if (tagIdx.hasAnyTag(card.getName(), TAGS_SACRIFICE_PROTECT)) {
                             return false;
                         }
                     }
@@ -2127,8 +2130,7 @@ public class ComputerUtil {
         if (livingEnd.size() > 0)
             score = -(livingEnd.size() * 10);
 
-        // ponytail: archetype-aware land ratio via Scryfall tags
-        // Aggro wants fewer lands (2-3 in 7), Control wants more (4-5), default is half
+        // ponytail: archetype classification scans all cards in deck; cache result if called per-turn
         int idealLands = handSize / 2;
         int idealLandsAlt = idealLands + 1;
         CardTagIndex tagIndex = CardTagIndex.getInstance();
@@ -2157,8 +2159,7 @@ public class ComputerUtil {
             score += 10;
         }
 
-        // ponytail: curve quality bonus via Scryfall tags
-        // Hands with early plays (1-2 CMC) + late threats score better than all-expensive hands
+        // doc:mulligan-bonuses DONE
         if (tagIndex.size() > 0 && landSize >= 2) {
             int earlyPlays = 0, lateThreats = 0;
             boolean hasSacrificeOutlet = false, hasDeathTrigger = false;

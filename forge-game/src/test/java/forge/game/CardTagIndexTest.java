@@ -1,3 +1,4 @@
+// REFORGE COMMANDER EXTENSION
 package forge.game;
 
 import org.testng.annotations.Test;
@@ -21,6 +22,11 @@ public class CardTagIndexTest {
         }
         CardTagIndex.load(tmp.getAbsolutePath());
         return CardTagIndex.getInstance();
+    }
+
+    @org.testng.annotations.AfterMethod
+    public void tearDown() {
+        CardTagIndex.load(null);
     }
 
     @Test
@@ -65,19 +71,14 @@ public class CardTagIndexTest {
             "Brainstorm|draw-engine",
             "Sol Ring|mana-rock"
         );
-        // Single threat tag: 1.0 + 0.25 = 1.25
         AssertJUnit.assertEquals(1.25f, idx.getThreatMultiplier("Wrath of God"), 0.01f);
-        // Single threat tag (draw-engine): 1.0 + 0.25 = 1.25
         AssertJUnit.assertEquals(1.25f, idx.getThreatMultiplier("Brainstorm"), 0.01f);
-        // No threat tags
         AssertJUnit.assertEquals(1.0f, idx.getThreatMultiplier("Sol Ring"), 0.01f);
-        // Unknown card
         AssertJUnit.assertEquals(1.0f, idx.getThreatMultiplier("Unknown"), 0.01f);
     }
 
     @Test
     public void testThreatMultiplierCapped() throws IOException {
-        // Cards with many threat tags should cap at 2.5
         CardTagIndex idx = createIndex("Overloaded|sweeper,draw-engine,pure-draw,counterspell,hatebear,mass-land-denial");
         AssertJUnit.assertEquals(2.5f, idx.getThreatMultiplier("Overloaded"), 0.01f);
     }
@@ -89,11 +90,8 @@ public class CardTagIndexTest {
             "Doom Foretold|sacrifice-outlet-creature",
             "Sol Ring|mana-rock"
         );
-        // synergy-sacrifice-self: boost = 5
         AssertJUnit.assertEquals(5, idx.getSacMeBoost("Bloodghast"));
-        // sacrifice-outlet-creature is NOT in SACRIFICE_WORTHY_TAGS: boost = 0
         AssertJUnit.assertEquals(0, idx.getSacMeBoost("Doom Foretold"));
-        // No sacrifice tags
         AssertJUnit.assertEquals(0, idx.getSacMeBoost("Sol Ring"));
     }
 
@@ -105,21 +103,17 @@ public class CardTagIndexTest {
             "Counterspell|counterspell",
             "Sol Ring|mana-rock"
         );
-        // Aggro: 2 creatures with evasion/haste/attacking-matters tags
         Map<String, Integer> aggroDeck = Map.of("Goblin Guide", 4, "Lightning Bolt", 4);
         AssertJUnit.assertEquals(CardTagIndex.DeckArchetype.AGGRO, idx.classifyDeckArchetype(aggroDeck));
 
-        // Control: 2 counterspell creatures
         Map<String, Integer> controlDeck = Map.of("Counterspell", 4, "Sol Ring", 4);
         AssertJUnit.assertEquals(CardTagIndex.DeckArchetype.CONTROL, idx.classifyDeckArchetype(controlDeck));
 
-        // Empty deck
         AssertJUnit.assertEquals(CardTagIndex.DeckArchetype.UNKNOWN, idx.classifyDeckArchetype(Map.of()));
     }
 
     @Test
     public void testEmptyIndexReturnsDefaults() throws IOException {
-        // Load a minimal index, then test defaults for unknown cards
         CardTagIndex idx = createIndex("Bolt|evasion");
         AssertJUnit.assertEquals(1, idx.size());
         AssertJUnit.assertTrue(idx.getTags("Unknown Card").isEmpty());

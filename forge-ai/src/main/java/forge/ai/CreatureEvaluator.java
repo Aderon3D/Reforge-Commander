@@ -286,7 +286,7 @@ public class CreatureEvaluator implements Function<Card, Integer> {
             }
         }
 
-        // ponytail: Scryfall-tag-based creature evaluation bonus
+        // ponytail: tag lookup is O(1); extend with more Scryfall tags as vocabulary grows
         CardTagIndex tagIndex = CardTagIndex.getInstance();
         if (tagIndex.size() > 0) {
             String name = c.getName();

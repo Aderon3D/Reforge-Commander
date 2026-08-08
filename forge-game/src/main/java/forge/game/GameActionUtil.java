@@ -341,7 +341,8 @@ public final class GameActionUtil {
             }
             final Card host = o.getHost();
 
-            SpellAbility newSA;
+            SpellAbility newSA = null;
+
             if (o.getPayManaCost() == PayManaCost.NO) {
                 newSA = sa.copyWithNoManaCost(activator);
                 newSA.setBasicSpell(false);

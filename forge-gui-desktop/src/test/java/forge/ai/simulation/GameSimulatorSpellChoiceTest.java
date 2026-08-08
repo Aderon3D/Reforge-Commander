@@ -184,7 +184,7 @@ public class GameSimulatorSpellChoiceTest extends SimulationTest {
     }
 
     private GameSimulator simulate(Game game, Player player, SpellAbility ability) {
-        GameSimulator simulator = createSimulator(player);
+        GameSimulator simulator = createSimulator(game, player);
         simulator.simulateSpellAbility(ability);
         return simulator;
     }

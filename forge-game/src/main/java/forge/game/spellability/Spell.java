@@ -165,8 +165,6 @@ public abstract class Spell extends SpellAbility implements java.io.Serializable
             }
 
             source.forceTurnFaceUp();
-            source.setLKICMC(-1);
-            source.setLKICMC(source.getCMC());
             lkicheck = true;
         }
 

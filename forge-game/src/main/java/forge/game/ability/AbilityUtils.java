@@ -2725,7 +2725,7 @@ public class AbilityUtils {
         }
 
         if (sq[0].startsWith("PlanarDiceSpecialActionThisTurn")) {
-            return doXMath(game.getPhaseHandler().getPlanarDiceSpecialActionThisTurn(), expr, c, ctb);
+            return game.getPhaseHandler().getPlanarDiceSpecialActionThisTurn();
         }
 
         if (sq[0].equals("TotalTurns")) {
@@ -2789,7 +2789,7 @@ public class AbilityUtils {
                     activated++;
                 }
             }
-            return doXMath(activated, s, c, ctb);
+            return activated;
         }
 
         // Count$ThisTurnEntered <ZoneDestination> [from <ZoneOrigin>] <Valid>

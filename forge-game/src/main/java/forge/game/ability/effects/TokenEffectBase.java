@@ -134,6 +134,8 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
             }
             try {
             for (int i = 0; i < cellAmount; i++) {
+                // REFORGE COMMANDER EXTENSION — selective-fold at durable capture sites (issue #57)
+                boolean referenced = false;
                 Card tok = new CardCopyService(prototype).copyCard(true);
                 // disconnect from prototype
                 tok.getStates().forEach(cs -> tok.getState(cs).resetOriginalHost(prototype));
@@ -146,7 +148,6 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                 tok.setGameTimestamp(timestamp);
                 tok.setGamePieceType(GamePieceType.TOKEN);
 
-                boolean referenced = false;
                 // do effect stuff with the token
                 if (sa.hasParam("TokenTapped")) {
                     tok.setTapped(true);
@@ -187,7 +188,6 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                     triggerList.put(ZoneType.None, ZoneType.None, moved);
                     continue;
                 }
-                // ponytail: triggerList is within-pass (consumed by triggerChangesZoneAll + clear), NOT durable.
                 triggerList.put(ZoneType.None, moved.getZone().getZoneType(), moved);
 
                 triggerList.addToken(lki, creator.getNumTokenCreatedThisTurn() == 0);
@@ -205,53 +205,38 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
 
                 if (sa.hasParam("AtEOTTrig")) {
                     addSelfTrigger(sa, sa.getParam("AtEOTTrig"), moved);
-                    referenced = true;
                 }
 
                 if (addToCombat(moved, sa, "TokenAttacking", "TokenBlocking")) {
                     combatChanged.setTrue();
-                    referenced = true;
                 }
 
                 if (sa.hasParam("AttachAfter") && sa.hasParam("AttachedTo")) {
                     attachTokenTo(tok, sa);
-                    referenced = true;
                 }
 
                 moved.updateStateForView();
 
                 if (sa.hasParam("RememberTokens")) {
                     host.addRemembered(moved);
-                    referenced = true;
                 }
                 // used for some reflexive trigger
                 if (sa.hasParam("RememberOriginalTokens") && originalTokens.contains(prototype)) {
                     host.addRemembered(moved);
-                    referenced = true;
                 }
                 if (sa.hasParam("ImprintTokens")) {
                     host.addImprintedCard(moved);
-                    referenced = true;
                 }
                 if (sa.hasParam("RememberSource")) {
                     moved.addRemembered(host);
-                    referenced = true;
                 }
                 if (sa.hasParam("TokenRemembered")) {
                     moved.addRemembered(AbilityUtils.getDefinedObjects(host, sa.getParam("TokenRemembered"), sa));
-                    referenced = true;
                 }
                 allTokens.add(moved);
-                if (sa.hasParam("AtEOT")) {
-                    referenced = true;
-                }
 
                 if (sa.hasParam("CleanupForEach")) {
                     moved.removeRemembered(prototype.getRemembered());
-                }
-                // REFORGE COMMANDER EXTENSION — selective-fold: only stack unreferenced tokens (issue #57) // doc:1i DONE
-                if (!referenced && moved.getZone() instanceof PlayerZoneBattlefield) {
-                    ((PlayerZoneBattlefield) moved.getZone()).tryStackToken(moved);
                 }
             }
             } finally {
