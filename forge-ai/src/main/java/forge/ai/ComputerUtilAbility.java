@@ -10,6 +10,7 @@ import com.google.common.collect.Lists;
 
 import com.google.common.collect.Multimap;
 import forge.card.CardStateName;
+import forge.game.CardTagIndex;
 import forge.game.Game;
 import forge.game.GameActionUtil;
 import forge.game.ability.ApiType;
@@ -433,6 +434,23 @@ public class ComputerUtilAbility {
             // try to cast mana ritual spells before casting spells to maximize potential mana
             if ("ManaRitual".equals(sa.getParam("AILogic"))) {
                 p += 9;
+            }
+
+            // ponytail: Scryfall tag-based spell priority — play card advantage and ramp early
+            if (source != null) {
+                CardTagIndex tagIdx = CardTagIndex.getInstance();
+                if (tagIdx.size() > 0) {
+                    String name = source.getName();
+                    if (tagIdx.hasAnyTag(name, Set.of(CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW))) {
+                        p += 3;
+                    }
+                    if (tagIdx.hasAnyTag(name, Set.of(CardTagIndex.TAG_RAMP, CardTagIndex.TAG_MANA_DORK, CardTagIndex.TAG_MANA_ROCK))) {
+                        p += 2;
+                    }
+                    if (tagIdx.hasAnyTag(name, Set.of(CardTagIndex.TAG_SPOT_REMOVAL, CardTagIndex.TAG_SWEEPER))) {
+                        p += 1;
+                    }
+                }
             }
 
             if ((sa.isPlotting() || sa.isForetelling() || sa.isKeyword(Keyword.SUSPEND)) && ai.getTurn() > 10) {
