@@ -82,7 +82,7 @@ public class CardTagIndex {
     }
 
     private void loadFromFile(String path) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
+        try (BufferedReader reader = Files.newBufferedReader(Paths.get(path), StandardCharsets.UTF_8)) {
             Map<String, Set<String>> result = new HashMap<>(36000);
             String line;
             while ((line = reader.readLine()) != null) {
