@@ -1,5 +1,6 @@
 package forge.ai;
 
+import forge.game.CardTagIndex;
 import forge.game.GameEntity;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.ApiType;
@@ -283,6 +284,18 @@ public class CreatureEvaluator implements Function<Card, Integer> {
                     value -= subValue(20, "sac-unless");
                 }
             }
+        }
+
+        // ponytail: Scryfall-tag-based creature evaluation bonus
+        CardTagIndex tagIndex = CardTagIndex.getInstance();
+        if (tagIndex.size() > 0) {
+            String name = c.getName();
+            if (tagIndex.hasTag(name, CardTagIndex.TAG_EVASION)) value += 15;
+            if (tagIndex.hasTag(name, CardTagIndex.TAG_ANTHEM)) value += 10;
+            if (tagIndex.hasTag(name, CardTagIndex.TAG_KEYWORD_ANTHEM)) value += 10;
+            if (tagIndex.hasTag(name, CardTagIndex.TAG_MANA_DORK)) value += 8;
+            if (tagIndex.hasTag(name, CardTagIndex.TAG_DRAW_ENGINE)) value += 8;
+            if (tagIndex.hasTag(name, CardTagIndex.TAG_TUTOR_CREATURE)) value += 5;
         }
 
         // card-specific evaluation modifier

@@ -27,11 +27,16 @@ import forge.card.CardType;
 import forge.card.ColorSet;
 import forge.card.MagicColor;
 import forge.card.mana.ManaAtom;
+import forge.deck.CardPool;
+import forge.deck.Deck;
+import forge.deck.DeckSection;
+import forge.item.PaperCard;
 import forge.game.*;
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.ApiType;
 import forge.game.ability.effects.CharmEffect;
+import forge.game.CardTagIndex;
 import forge.game.card.*;
 import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
@@ -358,6 +363,16 @@ public class ComputerUtil {
                 CardCollection allowList = CardLists.filter(typeList, card -> {
                     if (card.isCreature() && ComputerUtilCard.evaluateCreature(card) > maxCreatureEval) {
                         return false;
+                    }
+                    // ponytail: protect high-value tagged permanents from generic sacrifice
+                    CardTagIndex tagIdx = CardTagIndex.getInstance();
+                    if (tagIdx.size() > 0 && !tagIdx.hasTag(card.getName(), CardTagIndex.TAG_SYNERGY_SACRIFICE_SELF)) {
+                        if (tagIdx.hasAnyTag(card.getName(), Set.of(
+                                CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
+                                CardTagIndex.TAG_ANTHEM, CardTagIndex.TAG_TUTOR_CREATURE,
+                                CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_HATEBEAR))) {
+                            return false;
+                        }
                     }
 
                     if (card.hasKeyword(Keyword.DISTURB) || card.hasKeyword(Keyword.ESCAPE)) {
@@ -2112,7 +2127,33 @@ public class ComputerUtil {
         if (livingEnd.size() > 0)
             score = -(livingEnd.size() * 10);
 
-        if (handSize/2 == landSize || handSize/2 == landSize +1) {
+        // ponytail: archetype-aware land ratio via Scryfall tags
+        // Aggro wants fewer lands (2-3 in 7), Control wants more (4-5), default is half
+        int idealLands = handSize / 2;
+        int idealLandsAlt = idealLands + 1;
+        CardTagIndex tagIndex = CardTagIndex.getInstance();
+        if (tagIndex.size() > 0) {
+            Deck deck = ai.getRegisteredPlayer().getDeck();
+            if (deck != null && !deck.isEmpty()) {
+                Map<String, Integer> cardCounts = new HashMap<>();
+                for (Map.Entry<DeckSection, CardPool> entry : deck) {
+                    if (entry.getKey() == DeckSection.Main || entry.getKey() == DeckSection.Commander) {
+                        for (Map.Entry<PaperCard, Integer> poolEntry : entry.getValue()) {
+                            cardCounts.merge(poolEntry.getKey().getName(), poolEntry.getValue(), Integer::sum);
+                        }
+                    }
+                }
+                CardTagIndex.DeckArchetype archetype = tagIndex.classifyDeckArchetype(cardCounts);
+                switch (archetype) {
+                    case AGGRO:   idealLands = Math.max(2, handSize / 3); idealLandsAlt = idealLands + 1; break;
+                    case CONTROL: idealLands = handSize / 2 + 1; idealLandsAlt = idealLands + 1; break;
+                    case COMBO:   idealLands = handSize / 2; idealLandsAlt = idealLands; break;
+                    default: break; // MIDRANGE/UNKNOWN use default
+                }
+            }
+        }
+
+        if ((idealLands == landSize || idealLandsAlt == landSize)) {
             score += 10;
         }
 
