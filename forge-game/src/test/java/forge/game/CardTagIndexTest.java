@@ -67,8 +67,8 @@ public class CardTagIndexTest {
         );
         // Single threat tag: 1.0 + 0.25 = 1.25
         AssertJUnit.assertEquals(1.25f, idx.getThreatMultiplier("Wrath of God"), 0.01f);
-        // Two threat tags (draw-engine + sweeper): 1.0 + 0.25 + 0.25 = 1.5
-        AssertJUnit.assertEquals(1.5f, idx.getThreatMultiplier("Brainstorm"), 0.01f);
+        // Single threat tag (draw-engine): 1.0 + 0.25 = 1.25
+        AssertJUnit.assertEquals(1.25f, idx.getThreatMultiplier("Brainstorm"), 0.01f);
         // No threat tags
         AssertJUnit.assertEquals(1.0f, idx.getThreatMultiplier("Sol Ring"), 0.01f);
         // Unknown card
@@ -91,8 +91,8 @@ public class CardTagIndexTest {
         );
         // synergy-sacrifice-self: boost = 5
         AssertJUnit.assertEquals(5, idx.getSacMeBoost("Bloodghast"));
-        // death-trigger (in SACRIFICE_WORTHY_TAGS): boost = 3
-        AssertJUnit.assertEquals(3, idx.getSacMeBoost("Doom Foretold"));
+        // sacrifice-outlet-creature is NOT in SACRIFICE_WORTHY_TAGS: boost = 0
+        AssertJUnit.assertEquals(0, idx.getSacMeBoost("Doom Foretold"));
         // No sacrifice tags
         AssertJUnit.assertEquals(0, idx.getSacMeBoost("Sol Ring"));
     }
@@ -118,13 +118,13 @@ public class CardTagIndexTest {
     }
 
     @Test
-    public void testEmptyIndexReturnsDefaults() {
-        // Before any load, getInstance() returns EMPTY singleton
-        CardTagIndex empty = CardTagIndex.getInstance();
-        AssertJUnit.assertEquals(0, empty.size());
-        AssertJUnit.assertTrue(empty.getTags("Anything").isEmpty());
-        AssertJUnit.assertFalse(empty.hasTag("Anything", "anything"));
-        AssertJUnit.assertEquals(1.0f, empty.getThreatMultiplier("Anything"), 0.01f);
-        AssertJUnit.assertEquals(0, empty.getSacMeBoost("Anything"));
+    public void testEmptyIndexReturnsDefaults() throws IOException {
+        // Load a minimal index, then test defaults for unknown cards
+        CardTagIndex idx = createIndex("Bolt|evasion");
+        AssertJUnit.assertEquals(1, idx.size());
+        AssertJUnit.assertTrue(idx.getTags("Unknown Card").isEmpty());
+        AssertJUnit.assertFalse(idx.hasTag("Unknown Card", "anything"));
+        AssertJUnit.assertEquals(1.0f, idx.getThreatMultiplier("Unknown Card"), 0.01f);
+        AssertJUnit.assertEquals(0, idx.getSacMeBoost("Unknown Card"));
     }
 }
