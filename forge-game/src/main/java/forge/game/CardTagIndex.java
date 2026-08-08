@@ -72,15 +72,34 @@ public class CardTagIndex {
 
     private static final CardTagIndex EMPTY = new CardTagIndex();
 
+    /**
+     * Retrieves the currently loaded card tag index.
+     *
+     * @return the loaded index, or an empty index if none has been loaded
+     */
     public static synchronized CardTagIndex getInstance() {
         return instance != null ? instance : EMPTY;
     }
 
+    /**
+     * Loads card tags from the specified file and replaces the current index.
+     *
+     * @param txtPath path to the UTF-8 card tag file
+     */
     public static synchronized void load(String txtPath) {
         instance = new CardTagIndex();
         instance.loadFromFile(txtPath);
     }
 
+    /**
+     * Loads card tags from a UTF-8 file formatted as {@code CardName|tag1,tag2}.
+     *
+     * <p>Malformed records and records without tags are skipped. Successfully loaded
+     * card and tag mappings are stored as unmodifiable collections. I/O failures
+     * leave the current index unchanged.
+     *
+     * @param path path to the tag data file
+     */
     private void loadFromFile(String path) {
         try (BufferedReader reader = Files.newBufferedReader(Paths.get(path), StandardCharsets.UTF_8)) {
             Map<String, Set<String>> result = new HashMap<>(36000);
@@ -104,14 +123,34 @@ public class CardTagIndex {
         }
     }
 
+    /**
+     * Retrieves the Scryfall tags associated with a card name.
+     *
+     * @param cardName the card name to look up
+     * @return the card's tags, or an empty set if the card is not indexed
+     */
     public Set<String> getTags(String cardName) {
         return tags.getOrDefault(cardName, Collections.emptySet());
     }
 
+    /**
+     * Determines whether a card has the specified tag.
+     *
+     * @param cardName the card name
+     * @param tag      the tag to check
+     * @return {@code true} if the card has the tag, {@code false} otherwise
+     */
     public boolean hasTag(String cardName, String tag) {
         return tags.getOrDefault(cardName, Collections.emptySet()).contains(tag);
     }
 
+    /**
+     * Determines whether a card has at least one tag from the supplied set.
+     *
+     * @param cardName the card name to check
+     * @param tagSet   the tags to search for
+     * @return         {@code true} if the card has at least one supplied tag, {@code false} otherwise
+     */
     public boolean hasAnyTag(String cardName, Set<String> tagSet) {
         Set<String> cardTags = tags.getOrDefault(cardName, Collections.emptySet());
         for (String tag : tagSet) {
@@ -121,7 +160,12 @@ public class CardTagIndex {
     }
 
     // ponytail: threat multiplier based on Scryfall tags
-    // returns 1.0 for no adjustment, >1.0 for high-threat targets
+    /**
+     * Calculates the threat multiplier for a card based on its high-threat tags.
+     *
+     * @param cardName the card name to evaluate
+     * @return the threat multiplier, from {@code 1.0} to {@code 2.5}
+     */
     public float getThreatMultiplier(String cardName) {
         Set<String> cardTags = tags.getOrDefault(cardName, Collections.emptySet());
         if (cardTags.isEmpty()) return 1.0f;
@@ -136,7 +180,12 @@ public class CardTagIndex {
     }
 
     // ponytail: sacrifice willingness boost based on tags
-    // returns 0 if not a sacrifice target, 1-6 (SacMe scale) if it is
+    /**
+     * Determines the sacrifice value assigned to a card based on its tags.
+     *
+     * @param cardName the card name to evaluate
+     * @return the sacrifice boost: {@code 0} for cards without relevant tags, {@code 3} for sacrifice-worthy cards, or at least {@code 5} for self-sacrifice synergy cards
+     */
     public int getSacMeBoost(String cardName) {
         Set<String> cardTags = tags.getOrDefault(cardName, Collections.emptySet());
         if (cardTags.isEmpty()) return 0;
@@ -153,7 +202,12 @@ public class CardTagIndex {
         return boost;
     }
 
-    // ponytail: archetype classification for deck-level play pattern tuning
+    /**
+     * Classifies a deck according to the prevalence of aggro, control, and combo card tags.
+     *
+     * @param cardCounts the card names and quantities used to evaluate the deck
+     * @return the matching archetype, or {@link DeckArchetype#UNKNOWN} when the deck has no cards
+     */
     public DeckArchetype classifyDeckArchetype(Map<String, Integer> cardCounts) {
         int aggroScore = 0, controlScore = 0, comboScore = 0, total = 0;
 
@@ -188,6 +242,11 @@ public class CardTagIndex {
         AGGRO, CONTROL, COMBO, MIDRANGE, UNKNOWN
     }
 
+    /**
+     * Gets the number of cards in the index.
+     *
+     * @return the number of indexed cards
+     */
     public int size() {
         return tags.size();
     }

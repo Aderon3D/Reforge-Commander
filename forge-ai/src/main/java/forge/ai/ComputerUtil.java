@@ -274,6 +274,16 @@ public class ComputerUtil {
     public static Card getCardPreference(final Player ai, final Card activate, final String pref, final CardCollection typeList) {
         return getCardPreference(ai, activate, pref, typeList, null);
     }
+    /**
+     * Selects the card that best matches the specified AI preference.
+     *
+     * @param ai       the AI player making the selection
+     * @param activate the card or ability associated with the preference
+     * @param pref     the preference category to evaluate
+     * @param typeList the cards eligible for selection
+     * @param sa       the associated spell ability, when applicable
+     * @return the preferred card, or {@code null} if no eligible card is found
+     */
     public static Card getCardPreference(final Player ai, final Card activate, final String pref, final CardCollection typeList, SpellAbility sa) {
         final Game game = ai.getGame();
         String prefDef = "";

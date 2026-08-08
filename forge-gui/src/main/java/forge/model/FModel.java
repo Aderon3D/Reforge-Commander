@@ -144,6 +144,13 @@ public final class FModel {
     private static final Supplier<ItemPool<PaperCard>> attractionPool = Suppliers.memoize(() -> ItemPool.createFrom(getMagicDb().getVariantCards().getAllCards(PaperCardPredicates.fromRules(CardRulesPredicates.IS_ATTRACTION)), PaperCard.class));
     private static final Supplier<ItemPool<PaperCard>> contraptionPool = Suppliers.memoize(() -> ItemPool.createFrom(getMagicDb().getVariantCards().getAllCards(PaperCardPredicates.fromRules(CardRulesPredicates.IS_CONTRAPTION)), PaperCard.class));
 
+    /**
+     * Initializes Forge application data, preferences, localization, card databases, and AI configuration.
+     *
+     * @param progressBar the progress bar to update during initialization, or {@code null} to omit progress updates
+     * @param adjustPrefs optional function for adjusting preferences before they are applied
+     * @throws RuntimeException if preference adjustment fails or a required profile directory cannot be created
+     */
     public static void initialize(final IProgressBar progressBar, Function<ForgePreferences, Void> adjustPrefs) {
         ImageKeys.initializeDirs(
             ForgeConstants.CACHE_CARD_PICS_DIR, ForgeConstants.CACHE_CARD_PICS_SUBDIR,

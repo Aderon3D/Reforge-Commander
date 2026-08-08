@@ -564,6 +564,13 @@ public class ComputerUtilCard {
         return Aggregates.itemWithMax(list, c -> evaluateRemovalTargetPriority(ai, c));
     }
 
+    /**
+     * Evaluates the priority of a card as a potential removal target.
+     *
+     * @param ai the AI player evaluating the target
+     * @param c  the card being evaluated
+     * @return   the removal priority score
+     */
     private static int evaluateRemovalTargetPriority(final Player ai, final Card c) {
         int value;
         if (c.isCreature()) {
