@@ -23,6 +23,7 @@ import com.google.common.collect.Maps;
 
 import forge.StaticData;
 import forge.ai.simulation.GameStateEvaluator;
+import forge.game.CardTagIndex;
 import forge.card.CardRules;
 import forge.card.CardStateName;
 import forge.card.CardType;
@@ -584,6 +585,13 @@ public class ComputerUtilCard {
         if (c.getController().isOpponentOf(ai)) {
             value += ComputerUtil.evaluateBoardPosition(ai, c.getController()) / 4;
         }
+
+        // Scryfall tag-based threat multiplier: sweepers, draw engines, counterspells, etc.
+        float tagMultiplier = CardTagIndex.getInstance().getThreatMultiplier(c.getName());
+        if (tagMultiplier > 1.0f) {
+            value = (int)(value * tagMultiplier);
+        }
+
         return value;
     }
 
