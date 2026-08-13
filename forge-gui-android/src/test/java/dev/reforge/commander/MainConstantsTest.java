@@ -46,11 +46,11 @@ public class MainConstantsTest {
         String source = readMainSource();
 
         Pattern pattern = Pattern.compile(
-                "PublicFileProvider\\.getUriForFile\\([^,]+,\\s*\"([^\"]*)\"");
+                "PublicFileProvider\\.getUriForFile\\([^,]+,\\s*getPackageName\\(\\)\\s*\\+\\s*\"([^\"]*)\"");
         Matcher matcher = pattern.matcher(source);
 
-        assertTrue("expected to find PublicFileProvider.getUriForFile(...) call", matcher.find());
-        assertEquals("dev.reforge.commander.publicfileprovider", matcher.group(1));
+        assertTrue("expected to find PublicFileProvider.getUriForFile(getContext(), getPackageName() + \"...\", ...) call", matcher.find());
+        assertEquals(".publicfileprovider", matcher.group(1));
     }
 
     @Test
