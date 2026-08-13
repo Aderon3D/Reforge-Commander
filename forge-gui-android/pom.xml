@@ -40,6 +40,19 @@
     <build>
         <sourceDirectory>src</sourceDirectory>
         <plugins>
+            <!-- REFORGE COMMANDER EXTENSION: keep test sources on the test compiler only;
+                 sourceDirectory is "src", so the main compile would otherwise try to
+                 compile src/test/java (which needs TestNG on the test classpath). -->
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                    <excludes>
+                        <exclude>test/java/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
