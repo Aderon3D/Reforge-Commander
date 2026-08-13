@@ -235,7 +235,9 @@ public class SimulationController {
                     if (cardScore == effect.targetScore) {
                         Score currentScore = getCurrentScore();
                         // TODO: summonSick score?
-                        return new Score(currentScore.value + effect.scoreDelta, currentScore.summonSickValue);
+                        return new Score(currentScore.value + effect.scoreDelta,
+                                currentScore.summonSickValue + effect.scoreDelta,
+                                currentScore.availableValue + effect.scoreDelta);
                     }
                 }
             }
