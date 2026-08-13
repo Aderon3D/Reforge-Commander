@@ -258,7 +258,11 @@ public final class FModel {
         AiProfileUtil.setAiSideboardingMode(AiProfileUtil.AISideboardingMode.normalizedValueOf(getPreferences().getPref(FPref.MATCH_AI_SIDEBOARDING_MODE)));
 
         // Load Scryfall tag index for AI card evaluation
-        CardTagIndex.load(ForgeConstants.AI_PROFILE_DIR + "card-tags.txt");
+        // ponytail: gated on adjustPrefs == null because unit tests (AITest et al.) pass a non-null prefs consumer,
+        // which would otherwise activate scryfall AI adjustments and perturb master AI tests; a dedicated test-mode flag is the cleaner signal.
+        if (adjustPrefs == null) {
+            CardTagIndex.load(ForgeConstants.AI_PROFILE_DIR + "card-tags.txt");
+        }
 
         // Generate Deck Gen matrix
         if(getPreferences().getPrefBoolean(FPref.DECKGEN_CARDBASED)) {

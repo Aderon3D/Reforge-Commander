@@ -176,7 +176,6 @@ public class GameStateEvaluator {
 
         // TODO evaluate holding mana open for counterspells
 
-        int summonSickScore = score;
         PhaseType gamePhase = game.getPhaseHandler().getPhase();
         for (Card c : game.getCardsIncludePhasingIn(ZoneType.Battlefield)) {
             boolean phasedOut = c.isPhasedOut();
@@ -190,18 +189,11 @@ public class GameStateEvaluator {
             if (phasedOut || (gamePhase.isBefore(PhaseType.MAIN2) && c.isSick() && c.getController() == aiPlayer)) {
                 availableValue = 0;
             }
-            int summonSickValue = value;
-            // REFORGE COMMANDER EXTENSION: summon-sick creatures (before MAIN2) are worth 0 to the
-            // summon-sick score, mirroring the master availableValue handling but ignoring phasing.
-            if (gamePhase.isBefore(PhaseType.MAIN2) && c.isSick() && c.getController() == aiPlayer) {
-                summonSickValue = 0;
-            }
             String str = cardToString(c);
             int multiplier = c.getController().isOpponentOf(aiPlayer) ? -1 : 1;
             debugPrint("  Battlefield: " + str + " = " + (multiplier < 0 ? "-" : "") + value);
             score += multiplier * value;
             availableScore += multiplier * availableValue;
-            summonSickScore += multiplier * summonSickValue;
             String nonAbilityText = c.getNonAbilityText();
             if (!nonAbilityText.isEmpty()) {
                 debugPrint("    "+nonAbilityText.replaceAll("CARDNAME", c.getName()));
@@ -209,7 +201,7 @@ public class GameStateEvaluator {
         }
 
         debugPrint("Score = " + score);
-        return new Score(score, summonSickScore, availableScore);
+        return new Score(score, availableScore);
     }
 
     private int evalManaBase(Player player, AiDeckStatistics statistics, boolean includeNormalPhasing) {
@@ -343,39 +335,25 @@ public class GameStateEvaluator {
         public final int value;
         /** Value currently available for mana, abilities, and the next combat. */
         public final int availableValue;
-        // REFORGE COMMANDER EXTENSION: keep summonSickValue so the scryfall-tag AI scoring
-        // (SimulationController/SpellAbilityPicker) still compiles and can prefer holding off on
-        // summon-sick creatures; independent of the master availableValue/team scoring above.
-        public final int summonSickValue;
-
+        
         public Score(int value) {
             this.value = value;
             this.availableValue = value;
-            this.summonSickValue = value;
         }
 
         public Score(int value, int availableValue) {
             this.value = value;
-            this.availableValue = availableValue;
-            this.summonSickValue = value;
-        }
-
-        public Score(int value, int summonSickValue, int availableValue) {
-            this.value = value;
-            this.summonSickValue = summonSickValue;
             this.availableValue = availableValue;
         }
 
         public boolean equals(Score other) {
             if (other == null)
                 return false;
-            return value == other.value && availableValue == other.availableValue
-                    && summonSickValue == other.summonSickValue;
+            return value == other.value && availableValue == other.availableValue;
         }
 
         public String toString() {
-            return value + (summonSickValue != value ? " (ss " + summonSickValue + ")" : "")
-                    + (availableValue != value ? " (available " + availableValue + ")" : "");
+            return value + (availableValue != value ? " (available " + availableValue + ")" : "");
         }
     }
 }
