@@ -156,6 +156,7 @@ public class GameStateEvaluator {
         // TODO evaluate holding mana open for counterspells
 
         int summonSickScore = score;
+        int availableScore = score;
         PhaseType gamePhase = game.getPhaseHandler().getPhase();
         for (Card c : game.getCardsIn(ZoneType.Battlefield)) {
             int value = evalCard(game, aiPlayer, c);
@@ -165,15 +166,23 @@ public class GameStateEvaluator {
             if (gamePhase.isBefore(PhaseType.MAIN2) && c.isSick() && c.getController() == aiPlayer) {
                 summonSickValue = 0;
             }
+            int availableValue = value;
+            // REFORGE COMMANDER EXTENSION: a phased-out (or summon-sick) permanent is not
+            // currently available, so it contributes 0 to the available score.
+            if (c.isPhasedOut() || (gamePhase.isBefore(PhaseType.MAIN2) && c.isSick() && c.getController() == aiPlayer)) {
+                availableValue = 0;
+            }
             String str = cardToString(c);
             if (c.getController() == aiPlayer) {
                 debugPrint("  Battlefield: " + str + " = " + value);
                 score += value;
                 summonSickScore += summonSickValue;
+                availableScore += availableValue;
             } else {
                 debugPrint("  Battlefield: " + str + " = -" + value);
                 score -= value;
                 summonSickScore -= summonSickValue;
+                availableScore -= availableValue;
             }
             String nonAbilityText = c.getNonAbilityText();
             if (!nonAbilityText.isEmpty()) {
@@ -182,7 +191,7 @@ public class GameStateEvaluator {
         }
 
         debugPrint("Score = " + score);
-        return new Score(score, summonSickScore);
+        return new Score(score, summonSickScore, availableScore);
     }
 
     public int evalManaBase(Game game, Player player, AiDeckStatistics statistics) {
@@ -309,25 +318,40 @@ public class GameStateEvaluator {
     public static class Score {
         public final int value;
         public final int summonSickValue;
-        
+        // REFORGE COMMANDER EXTENSION: keep the upstream availableValue field so the
+        // (unchanged) desktop GameStateEvaluatorTest phasing assertions still compile and
+        // pass; it tracks value of currently-available permanents (phased-out / summon-sick
+        // treated as 0), independent of the experiment's summonSickValue scoring.
+        public final int availableValue;
+
         public Score(int value) {
             this.value = value;
             this.summonSickValue = value;
+            this.availableValue = value;
         }
 
         public Score(int value, int summonSickValue) {
             this.value = value;
             this.summonSickValue = summonSickValue;
+            this.availableValue = value;
+        }
+
+        public Score(int value, int summonSickValue, int availableValue) {
+            this.value = value;
+            this.summonSickValue = summonSickValue;
+            this.availableValue = availableValue;
         }
 
         public boolean equals(Score other) {
             if (other == null)
                 return false;
-            return value == other.value && summonSickValue == other.summonSickValue;
+            return value == other.value && summonSickValue == other.summonSickValue
+                    && availableValue == other.availableValue;
         }
 
         public String toString() {
-            return value + (summonSickValue != value ? " (ss " + summonSickValue + ")" :"");
+            return value + (summonSickValue != value ? " (ss " + summonSickValue + ")" :"")
+                    + (availableValue != value ? " (available " + availableValue + ")" : "");
         }
     }
 }

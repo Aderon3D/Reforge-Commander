@@ -149,7 +149,6 @@ public class Forge implements ApplicationListener {
             app = new Forge();
             if (GuiBase.getInterface() == null) {
                 clipboard = clipboard0;
-                deviceAdapter = deviceAdapter0;
                 //obb directory on android uses the package name as entrypoint
                 GuiBase.setUsingAppDirectory(assetDir0.contains("dev.reforge.commander"));
                 GuiBase.setInterface(new GuiMobile(assetDir0));
@@ -157,6 +156,9 @@ public class Forge implements ApplicationListener {
                 isTabletDevice = isTablet;
                 androidVersion = AndroidAPI;
             }
+            // REFORGE COMMANDER EXTENSION: set the device adapter on every first init,
+            // not only when the interface was unset, so setDeviceInfo below never NPEs.
+            deviceAdapter = deviceAdapter0;
             if (hwInfo != null) {
                 totalDeviceRAM = hwInfo.getTotalRam();
                 Sentry.configureScope(ScopeType.GLOBAL, scope -> {
