@@ -23,6 +23,7 @@ import com.google.common.collect.Maps;
 
 import forge.StaticData;
 import forge.ai.simulation.GameStateEvaluator;
+import forge.game.CardTagIndex;
 import forge.card.CardRules;
 import forge.card.CardStateName;
 import forge.card.CardType;
@@ -291,6 +292,7 @@ public class ComputerUtilCard {
     public static int evaluateLandRemovalPriority(final Player ai, final Card land, final SpellAbility removal) {
         return evaluateLandRemovalPriority(ai, land, removal, true);
     }
+
     private static int evaluateLandRemovalPriority(final Player ai, final Card land, final SpellAbility removal,
             final boolean includeLandDestruction) {
         if (land == null || !land.isLand()) {
@@ -323,7 +325,7 @@ public class ComputerUtilCard {
                 // Usually low priority: Homeward Path matters if the AI has
                 // stolen creatures that it could lose, but otherwise it is
                 // mostly just a colorless land with a narrow political button.
-                if (ai.getCreaturesInPlay().anyMatch(c -> c.getOwner() != ai)) {
+                if (aiControlsStolenCreature(ai)) {
                     score += 100;
                 } else {
                     score = Math.max(0, score - 50);
@@ -423,6 +425,15 @@ public class ComputerUtilCard {
     private static boolean isHomewardPathAbility(final SpellAbility ability) {
         return ability.getApi() == ApiType.GainControlVariant
                 && "GainControlOwns".equals(ability.getParam("AILogic"));
+    }
+
+    private static boolean aiControlsStolenCreature(final Player ai) {
+        for (Card creature : ai.getCreaturesInPlay()) {
+            if (!creature.getOwner().equals(ai)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isLandAnimationAbility(final SpellAbility ability) {
@@ -584,6 +595,13 @@ public class ComputerUtilCard {
         if (c.getController().isOpponentOf(ai)) {
             value += ComputerUtil.evaluateBoardPosition(ai, c.getController()) / 4;
         }
+
+        // Scryfall tag-based threat multiplier: sweepers, draw engines, counterspells, etc.
+        float tagMultiplier = CardTagIndex.getInstance().getThreatMultiplier(c.getName());
+        if (tagMultiplier > 1.0f) {
+            value = (int)(value * tagMultiplier);
+        }
+
         return value;
     }
 

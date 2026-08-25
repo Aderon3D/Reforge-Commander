@@ -112,6 +112,13 @@ public class Main extends AndroidApplication {
     // If you ever change the base app package, update this constant once.
     private static final String RES_PKG_FALLBACK = "dev.reforge.commander";
 
+    /**
+     * Resolves a resource identifier using the runtime package and configured fallback package.
+     *
+     * @param type the resource type
+     * @param name the resource name
+     * @return the resource identifier, or {@code 0} if the resource cannot be found
+     */
     private int resId(String type, String name) {
         // 1) Try fully-qualified with *runtime* package
         int id = getResources().getIdentifier(name, type, getPackageName());
@@ -789,6 +796,12 @@ public class Main extends AndroidApplication {
             return new GitLogs().getLatestReleaseTag(releaseAtom);
         }
 
+        /**
+         * Opens a file using an Android activity.
+         *
+         * @param filename the path of the file to open
+         * @return {@code true} if the file-opening activity starts successfully, {@code false} otherwise
+         */
         @Override
         public boolean openFile(String filename) {
             try {

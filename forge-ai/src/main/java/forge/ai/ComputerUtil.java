@@ -27,11 +27,16 @@ import forge.card.CardType;
 import forge.card.ColorSet;
 import forge.card.MagicColor;
 import forge.card.mana.ManaAtom;
+import forge.deck.CardPool;
+import forge.deck.Deck;
+import forge.deck.DeckSection;
+import forge.item.PaperCard;
 import forge.game.*;
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.ApiType;
 import forge.game.ability.effects.CharmEffect;
+import forge.game.CardTagIndex;
 import forge.game.card.*;
 import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
@@ -76,6 +81,12 @@ import java.util.stream.Collectors;
  * @version $Id$
  */
 public class ComputerUtil {
+
+    private static final Set<String> TAGS_SACRIFICE_PROTECT = Set.of(
+        CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
+        CardTagIndex.TAG_ANTHEM, CardTagIndex.TAG_TUTOR_CREATURE,
+        CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_HATEBEAR
+    );
 
     public static boolean handlePlayingSpellAbility(final Player ai, SpellAbility sa, Consumer<SpellAbility> chooseTargets) {
         final Card source = sa.getHostCard();
@@ -335,9 +346,14 @@ public class ComputerUtil {
                         return ComputerUtilCard.getWorstLand(landsInPlay);
                     }
                 }
-                final CardCollection sacMeList = CardLists.filter(typeList, c -> (c.hasSVar("SacMe") && Integer.parseInt(c.getSVar("SacMe")) == priority)
-                        || (priority == 1 && shouldSacrificeThreatenedCard(ai, c, sa))
-                );
+                final CardCollection sacMeList = CardLists.filter(typeList, c -> {
+                    // SVar-based SacMe check (existing)
+                    if (c.hasSVar("SacMe") && Integer.parseInt(c.getSVar("SacMe")) == priority) return true;
+                    // Scryfall tag-based sacrifice boost: cards tagged "synergy-sacrifice-self" get priority 5
+                    if (priority <= 5 && CardTagIndex.getInstance().hasTag(c.getName(), CardTagIndex.TAG_SYNERGY_SACRIFICE_SELF)) return true;
+                    // Priority 1 fallback: threatened cards
+                    return priority == 1 && shouldSacrificeThreatenedCard(ai, c, sa);
+                });
                 if (!sacMeList.isEmpty()) {
                     CardLists.shuffle(sacMeList);
                     return sacMeList.getFirst();
@@ -353,6 +369,13 @@ public class ComputerUtil {
                 CardCollection allowList = CardLists.filter(typeList, card -> {
                     if (card.isCreature() && ComputerUtilCard.evaluateCreature(card) > maxCreatureEval) {
                         return false;
+                    }
+                    // ponytail: heuristic filter, 6-tag set is small enough to allocate per-call; hoist if profiling shows it matters
+                    CardTagIndex tagIdx = CardTagIndex.getInstance();
+                    if (tagIdx.size() > 0 && !tagIdx.hasTag(card.getName(), CardTagIndex.TAG_SYNERGY_SACRIFICE_SELF)) {
+                        if (tagIdx.hasAnyTag(card.getName(), TAGS_SACRIFICE_PROTECT)) {
+                            return false;
+                        }
                     }
 
                     if (card.hasKeyword(Keyword.DISTURB) || card.hasKeyword(Keyword.ESCAPE)) {
@@ -2107,8 +2130,56 @@ public class ComputerUtil {
         if (livingEnd.size() > 0)
             score = -(livingEnd.size() * 10);
 
-        if (handSize/2 == landSize || handSize/2 == landSize +1) {
+        // ponytail: archetype classification scans all cards in deck; cache result if called per-turn
+        int idealLands = handSize / 2;
+        int idealLandsAlt = idealLands + 1;
+        CardTagIndex tagIndex = CardTagIndex.getInstance();
+        if (tagIndex.size() > 0) {
+            Deck deck = ai.getRegisteredPlayer().getDeck();
+            if (deck != null && !deck.isEmpty()) {
+                Map<String, Integer> cardCounts = new HashMap<>();
+                for (Map.Entry<DeckSection, CardPool> entry : deck) {
+                    if (entry.getKey() == DeckSection.Main || entry.getKey() == DeckSection.Commander) {
+                        for (Map.Entry<PaperCard, Integer> poolEntry : entry.getValue()) {
+                            cardCounts.merge(poolEntry.getKey().getName(), poolEntry.getValue(), Integer::sum);
+                        }
+                    }
+                }
+                CardTagIndex.DeckArchetype archetype = tagIndex.classifyDeckArchetype(cardCounts);
+                switch (archetype) {
+                    case AGGRO:   idealLands = Math.max(2, handSize / 3); idealLandsAlt = idealLands + 1; break;
+                    case CONTROL: idealLands = handSize / 2 + 1; idealLandsAlt = idealLands + 1; break;
+                    case COMBO:   idealLands = handSize / 2; idealLandsAlt = idealLands; break;
+                    default: break; // MIDRANGE/UNKNOWN use default
+                }
+            }
+        }
+
+        if ((idealLands == landSize || idealLandsAlt == landSize)) {
             score += 10;
+        }
+
+        // doc:mulligan-bonuses DONE
+        if (tagIndex.size() > 0 && landSize >= 2) {
+            int earlyPlays = 0, lateThreats = 0;
+            boolean hasSacrificeOutlet = false, hasDeathTrigger = false;
+            boolean hasEquipment = false, hasCreatureToEquip = false;
+            for (Card c : handList) {
+                if (c.isLand()) continue;
+                int cmc = c.getManaCost().getCMC();
+                if (cmc >= 1 && cmc <= 2) earlyPlays++;
+                if (cmc >= 4 && c.isCreature()) lateThreats++;
+                Set<String> tags = tagIndex.getTags(c.getName());
+                if (tags.contains(CardTagIndex.TAG_SACRIFICE_OUTLET)) hasSacrificeOutlet = true;
+                if (tags.contains("death-trigger") || tags.contains("leaves-creature")) hasDeathTrigger = true;
+                if (tags.contains(CardTagIndex.TAG_EQUIPMENT)) hasEquipment = true;
+                if (c.isCreature()) hasCreatureToEquip = true;
+            }
+            if (earlyPlays >= 2) score += 5;
+            if (earlyPlays >= 1 && lateThreats >= 1) score += 3;
+            // combo synergy bonus: sacrifice+death trigger, or equipment+creature
+            if (hasSacrificeOutlet && hasDeathTrigger) score += 6;
+            if (hasEquipment && hasCreatureToEquip) score += 4;
         }
 
         final CardCollectionView castables = CardLists.filter(handList, c -> c.getManaCost().getCMC() <= 0 || c.getManaCost().getCMC() <= landSize);

@@ -132,12 +132,23 @@ public class Forge implements ApplicationListener {
     private static Localizer localizer;
     private static boolean desktopAutoOrientation = true;
 
+    /**
+     * Initializes the shared application instance and configures platform-specific device and interface information.
+     *
+     * @param hwInfo              hardware and operating-system information, or {@code null}
+     * @param clipboard0          clipboard implementation used by the application
+     * @param deviceAdapter0      platform device adapter
+     * @param assetDir0           application asset directory
+     * @param androidOrientation whether the device uses portrait orientation
+     * @param isTablet            whether the device is a tablet
+     * @param AndroidAPI          Android API level
+     * @return                   the shared application instance
+     */
     public static ApplicationListener getApp(HWInfo hwInfo, Clipboard clipboard0, IDeviceAdapter deviceAdapter0, String assetDir0, boolean androidOrientation, boolean isTablet, int AndroidAPI) {
         if (app == null) {
             app = new Forge();
             if (GuiBase.getInterface() == null) {
                 clipboard = clipboard0;
-                deviceAdapter = deviceAdapter0;
                 //obb directory on android uses the package name as entrypoint
                 GuiBase.setUsingAppDirectory(assetDir0.contains("dev.reforge.commander"));
                 GuiBase.setInterface(new GuiMobile(assetDir0));
@@ -145,6 +156,9 @@ public class Forge implements ApplicationListener {
                 isTabletDevice = isTablet;
                 androidVersion = AndroidAPI;
             }
+            // REFORGE COMMANDER EXTENSION: set the device adapter on every first init,
+            // not only when the interface was unset, so setDeviceInfo below never NPEs.
+            deviceAdapter = deviceAdapter0;
             if (hwInfo != null) {
                 totalDeviceRAM = hwInfo.getTotalRam();
                 Sentry.configureScope(ScopeType.GLOBAL, scope -> {

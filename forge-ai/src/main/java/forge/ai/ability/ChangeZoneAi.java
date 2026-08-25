@@ -6,6 +6,7 @@ import com.google.common.collect.Multiset;
 
 import forge.ai.*;
 import forge.card.CardType;
+import forge.game.CardTagIndex;
 import forge.card.MagicColor;
 import forge.game.Game;
 import forge.game.GameEntity;
@@ -37,6 +38,10 @@ import java.util.Map.Entry;
 import java.util.stream.Collectors;
 
 public class ChangeZoneAi extends SpellAbilityAi {
+    private static final Set<String> TAGS_REMOVAL = Set.of(CardTagIndex.TAG_SPOT_REMOVAL, CardTagIndex.TAG_SWEEPER);
+    private static final Set<String> TAGS_DRAW = Set.of(CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW);
+    private static final Set<String> TAGS_RAMP = Set.of(CardTagIndex.TAG_RAMP, CardTagIndex.TAG_MANA_DORK);
+
     /*
      * This class looks horribly convoluted with hidden/known + CanPlay/Drawback/Trigger
      * and static functions like chooseCardToHiddenOriginChangeZone(). It might be a good
@@ -1604,6 +1609,40 @@ public class ChangeZoneAi extends SpellAbilityAi {
 
             // Tutor for the first key card in the list, since the list should be in priority order
             if (keycardFound != null) return keycardFound;
+
+            // ponytail: 4 anyMatch calls scan battlefield per tutor; batch into single pass if profiling shows cost
+            CardTagIndex tagIdx = CardTagIndex.getInstance();
+            if (tagIdx.size() > 0 && !fetchList.allMatch(CardPredicates.LANDS)) {
+                CardCollectionView bf = decider.getCardsIn(ZoneType.Battlefield);
+                boolean hasRemoval = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), TAGS_REMOVAL));
+                boolean hasDraw = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), TAGS_DRAW));
+                boolean hasRamp = bf.anyMatch(c2 -> tagIdx.hasAnyTag(c2.getName(), TAGS_RAMP));
+                boolean hasThreat = bf.anyMatch(c2 -> c2.isCreature()
+                        && ComputerUtilCard.evaluateCreature(c2) > 120);
+
+                Card bestCtx = null;
+                int bestScore = -1;
+                for (Card candidate : fetchList) {
+                    if (candidate.getType().isLand()) continue;
+                    int ctxScore = 0;
+                    Set<String> tags = tagIdx.getTags(candidate.getName());
+                    if (!hasRemoval && tags.contains(CardTagIndex.TAG_SWEEPER)) ctxScore += 30;
+                    if (!hasRemoval && tags.contains(CardTagIndex.TAG_SPOT_REMOVAL)) ctxScore += 20;
+                    if (!hasDraw && tags.contains(CardTagIndex.TAG_DRAW_ENGINE)) ctxScore += 25;
+                    if (!hasDraw && tags.contains(CardTagIndex.TAG_PURE_DRAW)) ctxScore += 20;
+                    if (!hasRamp && tags.contains(CardTagIndex.TAG_RAMP)) ctxScore += 15;
+                    if (!hasThreat && candidate.isCreature()) {
+                        ctxScore += ComputerUtilCard.evaluateCreature(candidate) / 20;
+                    }
+                    if (ctxScore > bestScore) {
+                        bestScore = ctxScore;
+                        bestCtx = candidate;
+                    }
+                }
+                if (bestCtx != null && bestScore >= 20) {
+                    return bestCtx;
+                }
+            }
 
             // Does AI need a land?
             // The logic here seems wrong if the decider isn't the same as the player

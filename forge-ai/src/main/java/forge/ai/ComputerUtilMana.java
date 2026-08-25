@@ -22,6 +22,7 @@ import forge.game.ability.ApiType;
 import forge.game.card.*;
 import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
+import forge.game.CardTagIndex;
 import forge.game.cost.*;
 import forge.game.keyword.Keyword;
 import forge.game.mana.Mana;
@@ -50,6 +51,11 @@ import java.util.stream.Collectors;
 
 public class ComputerUtilMana {
     private final static boolean DEBUG_MANA_PAYMENT = false;
+
+    private static final Set<String> TAGS_PRESERVE_FROM_TAP = Set.of(
+        CardTagIndex.TAG_DRAW_ENGINE, CardTagIndex.TAG_PURE_DRAW,
+        CardTagIndex.TAG_TUTOR_CARD, CardTagIndex.TAG_TUTOR_CREATURE
+    );
 
     public static boolean canPayManaCost(ManaCostBeingPaid cost, final SpellAbility sa, final Player ai, final boolean effect) {
         //check copy of cost so it doesn't modify the exist cost being paid
@@ -123,6 +129,22 @@ public class ComputerUtilMana {
             }
             if (CombatUtil.canBlock(card)) {
                 score += 13;
+            }
+        }
+
+        // ponytail: tag lookup is O(1) hashmap; skip if profiling shows measurable cost in mana payment loop
+        CardTagIndex tagIdx = CardTagIndex.getInstance();
+        if (tagIdx.size() > 0) {
+            String name = card.getName();
+            if (tagIdx.hasTag(name, CardTagIndex.TAG_MANA_DORK)) {
+                score -= 8; // prefer tapping pure mana creatures
+            }
+            if (tagIdx.hasTag(name, CardTagIndex.TAG_MANA_ROCK)) {
+                score -= 4; // prefer tapping rocks over utility artifacts
+            }
+            // Preserve sources with high-value attached roles
+            if (tagIdx.hasAnyTag(name, TAGS_PRESERVE_FROM_TAP)) {
+                score += 10;
             }
         }
 
