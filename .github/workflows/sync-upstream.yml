@@ -35,7 +35,7 @@ jobs:
         run: |
           RAW=$(git rev-list --count master..forge/master)
           HONEST=$(git cherry master forge/master | grep -c '^+')
-          echo "raw=$RAW happy=$HONEST (content-absent commits)"
+          echo "raw=$RAW honest=$HONEST (content-absent commits)"
           echo "behind=$HONEST" >> "$GITHUB_OUTPUT"
 
       - name: Merge upstream into sync branch
@@ -43,34 +43,23 @@ jobs:
         run: |
           git config user.name "Reforge"
           git config user.email "dev@reforge-commander.dev"
-          if [ "$(git rev-parse --verify origin/sync/upstream 2>/dev/null)" ]; then
-            git checkout -b sync/upstream origin/sync/upstream
+          # Start fresh from master (our latest) so the branch always contains
+          # all fork content.  Merge upstream; auto-resolve every conflict by
+          # keeping our version — upstream changes in non-conflicting files
+          # land cleanly, conflicting files keep master's copy for manual review.
+          git checkout -B sync/upstream master
+          if git merge --no-edit forge/master; then
+            echo "Clean merge — no conflicts."
           else
-            git checkout -b sync/upstream master
-          fi
-          git merge --no-edit master
-          git merge --no-edit forge/master
-          # Fork-owned files: the fork intentionally keeps its own version
-          # (branding; custom SwingImageFetcher). Upstream changes there are
-          # folded in manually via cherry-pick when wanted, so auto-resolve
-          # with --ours and let the rest of the merge land.
-          FORK_OWNED="README.md docs/Home.md forge-gui-desktop/src/main/java/forge/util/SwingImageFetcher.java"
-          CONFLICTS=$(git ls-files -u | awk '{print $4}' | sort -u)
-          UNEXPECTED=$(comm -23 <(echo "$CONFLICTS") <(echo "$FORK_OWNED" | tr ' ' '\n' | sort))
-          if [ -n "$UNEXPECTED" ]; then
-            echo "::warning::Unexpected merge conflicts with upstream:"
-            echo "$UNEXPECTED"
-            echo "::warning::Creating a sync branch from upstream so conflicts can be resolved in a PR."
-            # Abort the failed merge (if any), create sync/upstream from upstream head,
-            # and let the later Push/Open PR steps push and create the PR for manual resolution.
-            git merge --abort || true
-            git checkout -B sync/upstream forge/master
-          else
+            CONFLICTS=$(git ls-files -u | awk '{print $4}' | sort -u)
             if [ -n "$CONFLICTS" ]; then
+              echo "::warning::Auto-resolved merge conflicts (kept fork version): $CONFLICTS"
               git checkout --ours -- $CONFLICTS
               git add $CONFLICTS
               git commit --no-edit
-              echo "::warning::Auto-resolved fork-owned files (kept fork version): $CONFLICTS"
+            else
+              echo "::error::Merge failed but no conflicted files found"
+              exit 1
             fi
           fi
 

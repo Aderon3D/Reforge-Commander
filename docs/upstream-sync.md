@@ -38,9 +38,42 @@ These upstream files are modified directly by Reforge (not extended). A future u
 | `forge-gui/src/main/java/forge/gui/FSkin.java` | `applyCommanderDarkTheme` | 6a |
 | `forge-gui-desktop/src/main/java/forge/screens/home/VHomeUI.java` | `reforge.commander.mode` menu gating | commander-mode |
 | `forge-gui-desktop/src/main/java/forge/screens/home/EMenuGroup.java` | Reorder PLAY before GAUNTLET | 2c (sync-conflict risk) |
+| `forge-gui-desktop/src/test/java/forge/FCollectionTest.java` | Test adaptation | build (sync-conflict risk) |
 | `forge-gui-desktop/src/main/java/forge/gui/GuiDesktop.java` | Commander-mode init | commander-mode |
 | `forge-gui-desktop/pom.xml` | FlatLaf dependency | 6a |
 | Root `pom.xml` | Java 17 enforcement | build |
 
 **New Reforge-only files** (no sync risk):
 - `StackedTokenCard.java`, `ReforgeCommanderApp.java`, `VSubmenuPlayCommander.java`, `CSubmenuPlayCommander.java`, `ReforgeTheme.java`
+
+## Sync Log
+
+Notable upstream changes worth tracking (may affect fork behavior or require follow-up).
+
+### 2026-08-25 — Sync PR #139 (4 content-absent commits)
+
+| Commit | File(s) | Notes |
+|--------|---------|-------|
+| `Fix NPE (#11683)` | (AI) | Bugfix — likely safe, no fork impact expected |
+| `Edition updates: PSPL,PZ2,SLD,SLZ,YMKM` | card data | Card script additions — auto-merged |
+| `Don't create token copies that just die (#11690)` | (game engine) | Token creation logic change — may interact with `TokenEffectBase` (item 1a/1b) |
+| `Add Japanese translations (#11666)` | language files | Localization — auto-merged |
+
+### 2026-09-02 — Fast-forward (68 files, major upstream drift)
+
+Key upstream changes landed in this window — review for fork-relevant impacts:
+
+- **`CardFactoryUtil.java` (47 lines)** — Ascend mechanic refactored; `AscendEffect.java` deleted, logic inlined. No fork edits to AscendEffect, so safe.
+- **`Card.java` (47 lines)** — Significant refactor. Our fork doesn't edit Card.java directly (risk: low).
+- **`ComputerUtilMana.java` (141 lines)** — AI mana management rewrite. Fork doesn't edit this (risk: low).
+- **`Graphics.java` (36 lines)** — Rendering changes in mobile GUI. Fork doesn't edit (risk: low).
+- **`RewardActor.java` (102 lines)** — Major adventure-mode UI overhaul. Fork doesn't edit (risk: low).
+- **`AiCardMemory.java` (25 lines)** — AI memory refactor. Fork doesn't edit (risk: low).
+- **Storage lands** (7 card files) — Text/ability updates. Auto-merged.
+- **`PS_HOB1.pzl`** — New puzzle mode file. Hidden by default per product vision.
+
+**Fork collision risk:** `EMenuGroup.java` (already in table above) and `FCollectionTest.java` (not tracked) conflicted during merge. Add `FCollectionTest.java` to the table:
+
+| Upstream file | Why touched | Reforge items |
+|---------------|-------------|---------------|
+| `forge-gui-desktop/src/test/java/forge/FCollectionTest.java` | Test adaptation | build |
