@@ -85,7 +85,7 @@ Commander-first fork of [Card-Forge/forge](https://github.com/Card-Forge/forge).
 ## CI / automation
 
 - `.github/workflows/test-build.yaml` — `mvn -U -B clean test` on Java 17+21 matrix + `doc-status` job.
-- `.github/workflows/sync-upstream.yml` — daily 06:00 UTC sync from upstream, auto-merges via PR when green.
+- `.github/workflows/sync-upstream.yml` — daily 04:00 UTC sync from upstream, auto-merges via PR when green.
   Do not add a remote literally named `upstream` to any workflow: it makes `gh pr create` misattribute the repo.
 - `.github/workflows/ios-compat-gate.yml` — iOS/MobiVM link audit gate.
 - CodeQL (default setup), Dependabot, and CodeRabbit (quiet profile, critical issues only) are configured.

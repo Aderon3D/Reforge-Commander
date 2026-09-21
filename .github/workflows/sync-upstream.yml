@@ -67,7 +67,10 @@ jobs:
         if: steps.behind.outputs.behind > 0
         id: push
         run: |
-          git push origin sync/upstream
+          # Branch is rebuilt from master each run (checkout -B above), so the
+          # remote tip from the previous run's merge will never fast-forward.
+          # --force-with-lease still guards against a concurrent writer.
+          git push --force-with-lease origin sync/upstream
           echo "head=$(git rev-parse sync/upstream)" >> "$GITHUB_OUTPUT"
 
       - name: Open pull request
