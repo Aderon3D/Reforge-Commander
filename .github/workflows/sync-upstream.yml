@@ -28,13 +28,14 @@ jobs:
         run: |
           git remote add forge https://github.com/Card-Forge/forge.git
           git fetch forge master
+          git fetch origin master
           git fetch origin sync/upstream || true
 
       - name: Check backlog
         id: behind
         run: |
-          RAW=$(git rev-list --count master..forge/master)
-          HONEST=$(git cherry master forge/master | grep -c '^+')
+          RAW=$(git rev-list --count origin/master..forge/master)
+          HONEST=$(git cherry origin/master forge/master | grep -c '^+')
           echo "raw=$RAW honest=$HONEST (content-absent commits)"
           echo "behind=$HONEST" >> "$GITHUB_OUTPUT"
 
@@ -47,7 +48,7 @@ jobs:
           # all fork content.  Merge upstream; auto-resolve every conflict by
           # keeping our version — upstream changes in non-conflicting files
           # land cleanly, conflicting files keep master's copy for manual review.
-          git checkout -B sync/upstream master
+          git checkout -B sync/upstream origin/master
           if git merge --no-edit forge/master; then
             echo "Clean merge — no conflicts."
           else
