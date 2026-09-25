@@ -6,7 +6,7 @@
 
 ## How sync works
 
-A daily GitHub Action (`.github/workflows/sync-upstream.yml`) pulls from `Card-Forge/forge` at 06:00 UTC and opens a PR when the merge is green. The required checks (Java 17/21 tests, CodeQL, doc-status, platform-parity) must pass before merge.
+A daily GitHub Action (`.github/workflows/sync-upstream.yml`) pulls from `Card-Forge/forge` at 04:00 UTC and opens a PR when the merge is green. The required checks (Java 17/21 tests, CodeQL, doc-status, platform-parity) must pass before merge.
 
 **Never** add a remote literally named `upstream` to any workflow — it makes `gh pr create` misattribute the repo.
 
