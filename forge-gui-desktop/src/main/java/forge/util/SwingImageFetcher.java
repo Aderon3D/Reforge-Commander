@@ -18,10 +18,79 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.Date;
 import java.util.Iterator;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class SwingImageFetcher extends ImageFetcher {
+
+    // REFORGE COMMANDER EXTENSION — CDN image pacing, kept local on purpose.
+    // Upstream moved its Scryfall throttling into forge.util.ScryfallRateLimiter,
+    // which by design only covers api.scryfall.com and never the cards.scryfall.io
+    // CDN we download images from. Inheriting that limiter would silently stop
+    // pacing image fetches, so the pacing lives here instead of in the
+    // upstream-owned ImageFetcher, which upstream refactors freely.
+    private static final long SCRYFALL_IMAGE_MIN_INTERVAL_MS = 100;
+    private static final long SCRYFALL_IMAGE_COOLDOWN_MINUTES = 5;
+    private static final Object scryfallImagePacing = new Object();
+    private static volatile Date scryfallImageCooldownTime = null;
+    private static long lastScryfallImageRequest = 0;
+
+    private static boolean isScryfallImage(final String url) {
+        return url != null && (url.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD)
+                || url.startsWith(ForgeConstants.URL_SCRYFALL_CDN));
+    }
+
+    /** Whether we are still backing off after Scryfall rate limited us. Clears an expired cooldown. */
+    private static boolean scryfallImageCoolingDown() {
+        final Date cooldown = scryfallImageCooldownTime;
+        if (cooldown == null) {
+            return false;
+        }
+        if (cooldown.after(new Date())) {
+            return true;
+        }
+        scryfallImageCooldownTime = null;
+        return false;
+    }
+
+    /** Whether this download should be skipped because we are backing off Scryfall. */
+    private static boolean inScryfallImageCooldown(final String url) {
+        if (!isScryfallImage(url) || !scryfallImageCoolingDown()) {
+            return false;
+        }
+        System.err.println("Currently in cooldown period for scryfall downloads. Skipping download attempt for: " + url);
+        return true;
+    }
+
+    /** Record that Scryfall returned 429, so we stop asking for a while. */
+    private static void noteScryfallImageRateLimited() {
+        scryfallImageCooldownTime = new Date(System.currentTimeMillis()
+                + TimeUnit.MINUTES.toMillis(SCRYFALL_IMAGE_COOLDOWN_MINUTES));
+    }
+
+    /**
+     * Space Scryfall requests out. Downloads run on a work stealing pool, so without this a screen
+     * full of missing images asks for all of them at once. Called from the download task, never the
+     * EDT.
+     */
+    private static void paceScryfallImage(final String url) {
+        if (!isScryfallImage(url)) {
+            return;
+        }
+        synchronized (scryfallImagePacing) {
+            final long wait = lastScryfallImageRequest + SCRYFALL_IMAGE_MIN_INTERVAL_MS - System.currentTimeMillis();
+            if (wait > 0) {
+                try {
+                    Thread.sleep(wait);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            lastScryfallImageRequest = System.currentTimeMillis();
+        }
+    }
 
     @Override
     protected Runnable getDownloadTask(String[] downloadUrls, String destPath, Runnable notifyObservers) {
@@ -45,13 +114,13 @@ public class SwingImageFetcher extends ImageFetcher {
                 return false;
             }
 
-            if (inScryfallCooldown(urlToDownload)) {
+            if (inScryfallImageCooldown(urlToDownload)) {
                 return false;
             }
 
-            String newdespath = urlToDownload.contains(".fullborder.jpg") || urlToDownload.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD) ?
+            String newdespath = urlToDownload.contains(".fullborder.jpg") || isScryfallImage(urlToDownload) ?
                     TextUtil.fastReplace(destPath, ".full.jpg", ".fullborder.jpg") : destPath;
-            if (!newdespath.contains(".full") && !newdespath.contains(".artcrop") && urlToDownload.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD) && !destPath.startsWith(ForgeConstants.CACHE_TOKEN_PICS_DIR))
+            if (!newdespath.contains(".full") && !newdespath.contains(".artcrop") && isScryfallImage(urlToDownload) && !destPath.startsWith(ForgeConstants.CACHE_TOKEN_PICS_DIR))
                 newdespath = newdespath.replace(".jpg", ".fullborder.jpg");
             URL url = new URL(urlToDownload);
             System.out.println("Attempting to fetch: " + url);
@@ -62,7 +131,7 @@ public class SwingImageFetcher extends ImageFetcher {
                 return true;
             }
 
-            paceScryfall(urlToDownload);
+            paceScryfallImage(urlToDownload);
 
             // Read through a connection rather than ImageIO.read(URL), which discards the response
             // code - without it a 429 is indistinguishable from any other failure and we keep asking.
@@ -74,9 +143,9 @@ public class SwingImageFetcher extends ImageFetcher {
                 if (responseCode != HttpURLConnection.HTTP_OK) {
                     System.err.println("Failed to fetch image. HTTP code: " + responseCode
                             + " (" + httpConnection.getResponseMessage() + ") for URL: " + urlToDownload);
-                    if (responseCode == 429 && isScryfall(urlToDownload)) {
+                    if (responseCode == 429 && isScryfallImage(urlToDownload)) {
                         System.err.println("Rate limited by scryfall. Pausing image downloads.");
-                        noteScryfallRateLimited();
+                        noteScryfallImageRateLimited();
                     }
                     httpConnection.disconnect();
                     return false;
