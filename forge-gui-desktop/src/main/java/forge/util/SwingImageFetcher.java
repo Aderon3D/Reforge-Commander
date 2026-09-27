@@ -25,12 +25,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class SwingImageFetcher extends ImageFetcher {
 
-    // REFORGE COMMANDER EXTENSION — CDN image pacing, kept local on purpose.
+    // REFORGE COMMANDER EXTENSION — Scryfall image pacing, kept local on purpose.
     // Upstream moved its Scryfall throttling into forge.util.ScryfallRateLimiter,
-    // which by design only covers api.scryfall.com and never the cards.scryfall.io
-    // CDN we download images from. Inheriting that limiter would silently stop
-    // pacing image fetches, so the pacing lives here instead of in the
-    // upstream-owned ImageFetcher, which upstream refactors freely.
+    // which by design only covers api.scryfall.com and never the CDN image URLs we
+    // download from. Inheriting that limiter would silently stop pacing image
+    // fetches, so the pacing lives here instead of in the upstream-owned
+    // ImageFetcher, which upstream refactors freely.
     private static final long SCRYFALL_IMAGE_MIN_INTERVAL_MS = 100;
     private static final long SCRYFALL_IMAGE_COOLDOWN_MINUTES = 5;
     private static final Object scryfallImagePacing = new Object();
@@ -38,8 +38,7 @@ public class SwingImageFetcher extends ImageFetcher {
     private static long lastScryfallImageRequest = 0;
 
     private static boolean isScryfallImage(final String url) {
-        return url != null && (url.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD)
-                || url.startsWith(ForgeConstants.URL_SCRYFALL_CDN));
+        return url != null && url.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD);
     }
 
     /** Whether we are still backing off after Scryfall rate limited us. Clears an expired cooldown. */
