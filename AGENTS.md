@@ -23,8 +23,8 @@ Commander-first fork of [Card-Forge/forge](https://github.com/Card-Forge/forge).
 - **Roadmap status lives in code markers, not prose.** Completed/partial work carries `// doc:<item> <STATUS>`
   (`DONE`/`PARTIAL`) on the implementing line. `tools/doc-status.sh` fails CI if `docs/development.md` disagrees.
   When you finish a roadmap item: update `docs/development.md` section table + priority matrix, and mark the code.
-- **Never push to master.** Branch protection ruleset "Condom" requires: two Test build checks (Java 17/21), CodeQL,
-  and Copilot review. All changes land via PR.
+- **Never push to master.** Branch protection ruleset "Condom" requires the `Test with Java 21` check and
+  CodeQL scanning. No review is required. All changes land via PR.
 
 ## GitHub issues workflow
 
@@ -84,7 +84,7 @@ Commander-first fork of [Card-Forge/forge](https://github.com/Card-Forge/forge).
 
 ## CI / automation
 
-- `.github/workflows/test-build.yaml` — `mvn -U -B clean test` on Java 17+21 matrix + `doc-status` job.
+- `.github/workflows/test-build.yaml` — `mvn -B clean test` on Java 21 + `doc-status` job.
 - `.github/workflows/sync-upstream.yml` — daily 04:00 UTC sync from upstream, auto-merges via PR when green.
   Do not add a remote literally named `upstream` to any workflow: it makes `gh pr create` misattribute the repo.
 - `.github/workflows/ios-compat-gate.yml` — iOS/MobiVM link audit gate.
