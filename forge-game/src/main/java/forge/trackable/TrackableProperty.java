@@ -95,7 +95,6 @@ public enum TrackableProperty {
     ExiledWith(TrackableTypes.CardViewType),
     PreparedSpell(TrackableTypes.CardViewType),
     WasDestroyed(TrackableTypes.BooleanType),
-    CrackOverlay(TrackableTypes.IntegerType),
     NeedsTransformAnimation(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
     NeedsUntapAnimation(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
     NeedsTapAnimation(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
@@ -215,10 +214,6 @@ public enum TrackableProperty {
     PromptIfOnlyPossibleAbility(TrackableTypes.BooleanType),
     SA_IsSpell(TrackableTypes.BooleanType),
 
-    //HasBackSide
-    BackSideName(TrackableTypes.StringType),
-    HasBackSide(TrackableTypes.BooleanType),
-
     //StackItem
     Key(TrackableTypes.StringType),
     SourceTrigger(TrackableTypes.IntegerType),
@@ -257,6 +252,7 @@ public enum TrackableProperty {
     PoisonCountersToLose(TrackableTypes.IntegerType),
     PlayerTurn(TrackableTypes.PlayerViewType, FreezeMode.IgnoresFreeze),
     Phase(TrackableTypes.EnumType(PhaseType.class), FreezeMode.IgnoresFreeze),
+    Object(TrackableTypes.ObjectType, FreezeMode.IgnoresFreeze),
     Dependencies(TrackableTypes.StringType);
 
     public enum FreezeMode {

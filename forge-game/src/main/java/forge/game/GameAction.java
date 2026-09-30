@@ -2053,7 +2053,7 @@ public class GameAction {
         boolean recheck = false;
 
         for (Card c : list) {
-            if (c.getCounters(CounterEnumType.LOYALTY) <= 0) {
+            if (c.getCounters(CounterEnumType.LOYALTY) <= 0 && !c.ignorePlaneswalkerZeroLoyaltyRule()) {
                 noRegCreats.add(c);
                 recheck = true;
             }
@@ -2713,6 +2713,7 @@ public class GameAction {
                 runParams.put(AbilityKey.ScryBottom, toBottom == null ? 0 : toBottom.size());
                 game.getTriggerHandler().runTrigger(TriggerType.Scry, runParams, false);
             }
+            p.incScryThisTurn();
         }
     }
 
