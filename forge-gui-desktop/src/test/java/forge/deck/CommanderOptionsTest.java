@@ -8,6 +8,7 @@ import org.testng.annotations.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -150,7 +151,7 @@ public class CommanderOptionsTest extends AITest {
         deck.addAltCommander("Anafenza, the Foremost");
         deck.addAltCommander("Tymna the Weaver");
 
-        final File file = File.createTempFile("commander-options", ".dck");
+        final File file = Files.createTempFile("commander-options", ".dck").toFile();
         try {
             DeckSerializer.writeDeck(deck, file);
             final Deck loaded = DeckSerializer.fromFile(file);
