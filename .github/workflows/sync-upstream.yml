@@ -64,6 +64,45 @@ jobs:
             fi
           fi
 
+      - name: Adopt upstream desktop test stack
+        if: steps.behind.outputs.behind > 0
+        run: |
+          # Upstream migrated the desktop suite off PowerMockito.mockStatic to
+          # Mockito.mockStatic, which needs mockito-core 5.x (inline mock maker).
+          # Our 3.12.4 pin exists only to keep PowerMock 2.0.9 working, and the
+          # guard test enforcing it (MockitoDependencyVersionTest) contradicts
+          # the merged tree. Left in place, Test build fails with
+          # "SubclassByteBuddyMockMaker does not support the creation of static
+          # mocks" in 6 test cases and the sync can never land.
+          #
+          # Guarded: if upstream reintroduces PowerMock we leave our stack alone.
+          if git show forge/master:forge-gui-desktop/pom.xml | grep -q powermock; then
+            echo "Upstream uses PowerMock again; keeping our test stack."
+            exit 0
+          fi
+          VERSION=$(git show forge/master:forge-gui-desktop/pom.xml \
+            | sed -n '/<artifactId>mockito-core<\/artifactId>/{n;s/.*<version>\([^<]*\)<\/version>.*/\1/p;}')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not read mockito-core version from upstream pom"
+            exit 1
+          fi
+          echo "Upstream no longer uses PowerMock; adopting mockito-core $VERSION"
+          python3 - "$VERSION" <<'PY'
+          import re, sys
+          version = sys.argv[1]
+          path = 'forge-gui-desktop/pom.xml'
+          text = open(path, encoding='utf-8').read()
+          updated, n = re.subn(
+              r'(<artifactId>mockito-core</artifactId>\s*<version>)[^<]*(</version>)',
+              r'\g<1>' + version + r'\g<2>', text, count=1)
+          if n != 1:
+              raise SystemExit('expected exactly one mockito-core dependency, found %d' % n)
+          open(path, 'w', encoding='utf-8').write(updated)
+          PY
+          git rm -q --ignore-unmatch forge-gui-desktop/src/test/java/forge/MockitoDependencyVersionTest.java
+          git add forge-gui-desktop/pom.xml
+          git commit -q -m "test(desktop): adopt upstream mockito-core for the merged tree"
+
       - name: Push sync branch
         if: steps.behind.outputs.behind > 0
         id: push
