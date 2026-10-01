@@ -64,6 +64,30 @@ jobs:
             fi
           fi
 
+      - name: Drop inherited upstream workflows
+        if: steps.behind.outputs.behind > 0
+        run: |
+          # GITHUB_TOKEN may not create or update workflow files, so any
+          # workflow file the merge introduces from upstream makes the push
+          # fail outright and nothing can sync. Upstream's workflows are also
+          # Card-Forge-specific — most are gated on
+          # `github.repository_owner == 'Card-Forge'` — and mtg-fetch-cards.yml
+          # is upstream's own card-fetch bot, none of which we want running
+          # here. So drop the workflow files this merge adds and keep the
+          # fork's existing ones untouched.
+          ADDED=$(git diff --name-only --diff-filter=A origin/master HEAD -- .github/workflows/ || true)
+          if [ -n "$ADDED" ]; then
+            echo "::warning::Not inheriting upstream workflow files: $ADDED"
+            git rm -q -- $ADDED
+          fi
+          # Idempotent: nothing added on most runs, and committing with an
+          # empty index exits 1 and would fail the run.
+          if git diff --cached --quiet; then
+            echo "No upstream workflow files to drop."
+          else
+            git commit -q -m "ci: do not inherit upstream workflow files"
+          fi
+
       - name: Adopt upstream desktop test stack
         if: steps.behind.outputs.behind > 0
         run: |
