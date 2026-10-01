@@ -8,10 +8,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # Upstream ships its own .github/workflows (e.g. mtg-fetch-cards.yml, added in
-  # abbda43ca2e), so the merge can introduce workflow files this token would
-  # otherwise not be allowed to push.
-  workflows: write
 
 env:
   GH_TOKEN: ${{ github.token }}
