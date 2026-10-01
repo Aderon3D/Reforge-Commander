@@ -7,6 +7,10 @@ on:
   push:
     branches: [master]
   pull_request:
+  # The sync job cannot rely on a pull_request event: it pushes with
+  # GITHUB_TOKEN, and GitHub does not trigger workflow runs for GITHUB_TOKEN
+  # pushes. It dispatches this workflow explicitly instead.
+  workflow_dispatch:
 
 jobs:
   build:

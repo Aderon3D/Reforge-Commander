@@ -24,6 +24,9 @@ on:
       - '**/pom.xml'
       - 'forge-gui-ios/**'
       - '.github/workflows/ios-compat-gate.yml'
+  # Dispatched by the sync job, which pushes with GITHUB_TOKEN and therefore
+  # gets no pull_request event.
+  workflow_dispatch:
 
 jobs:
   audit:

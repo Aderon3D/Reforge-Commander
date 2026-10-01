@@ -17,6 +17,9 @@ on:
     branches: [ "master" ]
   schedule:
     - cron: '44 4 * * 6'
+  # Dispatched by the sync job, which pushes with GITHUB_TOKEN and therefore
+  # gets no pull_request event.
+  workflow_dispatch:
 
 jobs:
   analyze:

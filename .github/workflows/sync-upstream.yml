@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Needed to dispatch the required checks below: a GITHUB_TOKEN push does not
+  # trigger workflow runs, so the sync has to ask for them explicitly.
+  actions: write
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -156,22 +159,56 @@ jobs:
           fi
           echo "number=$pr" >> "$GITHUB_OUTPUT"
 
+      - name: Dispatch required checks
+        if: steps.behind.outputs.behind > 0
+        run: |
+          # GitHub does not trigger workflow runs for a push made with
+          # GITHUB_TOKEN (recursion prevention), so this sync's own PR gets no
+          # CI and sits BLOCKED on the ruleset's required checks forever.
+          # workflow_dispatch *is* permitted with GITHUB_TOKEN, so ask for the
+          # checks explicitly. Without this the previous "Wait for CI" passed
+          # vacuously on submit-maven and the run reported success on a PR that
+          # could not merge.
+          for wf in test-build.yaml codeql.yml ios-compat-gate.yml; do
+            if ! gh workflow run "$wf" --ref sync/upstream; then
+              echo "::error::Could not dispatch $wf on sync/upstream — it must exist on the branch with a workflow_dispatch trigger"
+              exit 1
+            fi
+            echo "Dispatched $wf on sync/upstream"
+          done
+
       - name: Wait for CI
         if: steps.behind.outputs.behind > 0
         run: |
           HEAD=${{ steps.push.outputs.head }}
-          for i in $(seq 1 60); do
-            DATA=$(gh api "repos/${{ github.repository }}/commits/$HEAD/check-runs" 2>/dev/null || echo '{"total_count":0,"check_runs":[]}')
-            TOTAL=$(echo "$DATA" | jq '.total_count')
-            PEND=$(echo "$DATA" | jq '[.check_runs[] | select(.status == "in_progress" or .status == "queued")] | length')
-            echo "check-runs: ${TOTAL}, pending: ${PEND} (${i}/60)"
-            if [ "$TOTAL" -gt 0 ] && [ "$PEND" -eq 0 ]; then
-              FAIL=$(echo "$DATA" | jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required")] | length')
-              if [ "$FAIL" -gt 0 ]; then
-                echo "::error::CI checks failed on $HEAD"
-                echo "$DATA" | jq -r '.check_runs[] | "\(.name): \(.conclusion)"'
-                exit 1
-              fi
+          # Exactly what the Condom ruleset requires, plus the documented
+          # platform-parity gate. Waiting on "any check" is not enough: the
+          # automatic dependency submission finishes in seconds and used to
+          # satisfy this step on its own.
+          REQUIRED=("Test with Java 21" "CodeQL" "iOS/MobiVM link audit")
+          for i in $(seq 1 90); do
+            DATA=$(gh api "repos/${{ github.repository }}/commits/$HEAD/check-runs?per_page=100" 2>/dev/null || echo '{"check_runs":[]}')
+            PENDING=""
+            FAILED=""
+            for name in "${REQUIRED[@]}"; do
+              # null conclusion means queued or in progress; absent check runs
+              # also read as null via `first`.
+              STATE=$(echo "$DATA" | jq -r --arg n "$name" \
+                '[.check_runs[] | select(.name == $n)] | first | (.conclusion // "pending")')
+              case "$STATE" in
+                success|neutral) ;;
+                pending) PENDING="$PENDING $name" ;;
+                *) FAILED="$FAILED $name=$STATE" ;;
+              esac
+            done
+            echo "iteration ${i}/90 — pending:${PENDING:- none} failed:${FAILED:- none}"
+            if [ -n "$FAILED" ]; then
+              echo "::error::CI checks failed on $HEAD:$FAILED"
+              echo "$DATA" | jq -r '.check_runs[] | "\(.name): \(.conclusion // .status)"'
+              exit 1
+            fi
+            if [ -z "$PENDING" ]; then
+              echo "All required checks passed on $HEAD"
               exit 0
             fi
             sleep 20
