@@ -101,7 +101,14 @@ jobs:
           PY
           git rm -q --ignore-unmatch forge-gui-desktop/src/test/java/forge/MockitoDependencyVersionTest.java
           git add forge-gui-desktop/pom.xml
-          git commit -q -m "test(desktop): adopt upstream mockito-core for the merged tree"
+          # Idempotent: once master has already adopted upstream's version the
+          # rewrite is a no-op and there is nothing staged, so committing would
+          # exit 1 and fail the run.
+          if git diff --cached --quiet; then
+            echo "Already on mockito-core $VERSION; nothing to change."
+          else
+            git commit -q -m "test(desktop): adopt upstream mockito-core for the merged tree"
+          fi
 
       - name: Push sync branch
         if: steps.behind.outputs.behind > 0
