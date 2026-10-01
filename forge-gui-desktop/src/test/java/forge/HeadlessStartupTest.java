@@ -187,12 +187,10 @@ public class HeadlessStartupTest {
         // Output goes to a file rather than a pipe this test reads. Draining a pipe to EOF before
         // waiting would make the timeout below unreachable — EOF only arrives when the child exits —
         // and would instead block here forever on a child that hangs holding stdout open.
-        File outputFile = File.createTempFile("headless-probe", ".log");
-        outputFile.deleteOnExit();
+        File outputFile = ownerOnlyTempFile("headless-probe", ".log");
         // An empty file as stdin gives the child immediate EOF, so a probe that ever reads the
         // console can't wedge waiting for input nobody will type. Portable, unlike /dev/null.
-        File emptyStdin = File.createTempFile("headless-probe-stdin", "");
-        emptyStdin.deleteOnExit();
+        File emptyStdin = ownerOnlyTempFile("headless-probe-stdin", "");
 
         ProcessBuilder pb = new ProcessBuilder(command);
         if (homeOverride != null) {
@@ -244,6 +242,17 @@ public class HeadlessStartupTest {
             this.exitCode = exitCode;
             this.output = output;
         }
+    }
+
+    /**
+     * Temp file restricted to the owner. The JDK's {@link Files#createTempFile} already creates
+     * with {@code rw-------} on POSIX and inside the per-user Windows temp dir, so no explicit
+     * permissions are needed. These files carry probe output and a config override path.
+     */
+    private static File ownerOnlyTempFile(final String prefix, final String suffix) throws IOException {
+        File file = Files.createTempFile(prefix, suffix).toFile();
+        file.deleteOnExit();
+        return file;
     }
 
     /** Runs in the forked JVM: loads GuiDesktop and reports the screen scale. */

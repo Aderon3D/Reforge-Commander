@@ -1030,7 +1030,7 @@ public class CardRenderer {
                 drawText(g, finalDisplayName, font, counterColor, x + 2f + additionalXOffset, counterYOffset, counterBoxRealWidth, counterBoxHeight, Align.left);
                 drawText(g, counterValueStr, font, counterColor, x + counterBoxBaseWidth - 4f - additionalXOffset, counterYOffset, counterBoxRealWidth, counterBoxHeight, Align.left);
 
-                verticalLayout += counterBoxHeight;
+                verticalLayout = (int) (verticalLayout + counterBoxHeight);
             }
         }
         markersHeight = verticalLayout;

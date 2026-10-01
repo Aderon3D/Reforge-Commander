@@ -709,7 +709,7 @@ public class DeckRecognizer {
     }
 
     public static String purgeAllLinks(String line){
-        String urlPattern = "(?:(?:https|ftp|file|http):)(?:(?://|\\\\)+)(?:[\\w\\d:#@%/;$~_?+-=\\\\.&]*)";
+        String urlPattern = "(?:(?:https|ftp|file|http):)(?:(?://|\\\\)+)(?:[\\w:#@%/;$~_?+\\-=\\\\.&]*)";
         Pattern p = Pattern.compile(urlPattern, Pattern.CASE_INSENSITIVE);
         Matcher m = p.matcher(line);
 
