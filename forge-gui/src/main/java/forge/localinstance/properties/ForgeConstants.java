@@ -31,10 +31,15 @@ public final class ForgeConstants {
     public static final String GITHUB_FORGE_URL                 = "https://github.com/Aderon3D/Reforge-Commander/";
     public static final String GITHUB_RELEASES_ATOM             = GITHUB_FORGE_URL + "releases.atom";
     public static final String GITHUB_COMMITS_ATOM              = GITHUB_FORGE_URL + "commits/master.atom";
-    // ponytail: daily-snapshots releases are not published for the fork, so the
-    // desktop auto-updater silently no-ops. If desktop updates are wanted, publish
-    // matching releases or revert this URL to upstream.
-    public static final String GITHUB_SNAPSHOT_URL              = GITHUB_FORGE_URL + "releases/download/daily-snapshots/";
+    // Asset downloads must come from a repo that actually publishes
+    // daily-snapshots; the fork does not, so assets.zip 404s there. On Android
+    // that is not a no-op: AssetsDownloader treats a failed first-run download as
+    // mandatory, offers only Download/Exit, and restarts on every launch —
+    // an inescapable loop. Upstream is where the 160MB bundle is published.
+    // ponytail: still not version-matched to this fork. If per-fork assets are
+    // wanted, publish daily-snapshots releases here and point this back at
+    // GITHUB_FORGE_URL.
+    public static final String GITHUB_SNAPSHOT_URL              = "https://github.com/Card-Forge/forge/releases/download/daily-snapshots/";
     public static final String NETWORK_PLAY_WIKI_URL            = GITHUB_FORGE_URL + "wiki/network-play";
     public static final String RELEASE_URL                      = "https://releases.cardforge.org/";
     public static final String PATH_SEPARATOR                   = File.separator;
