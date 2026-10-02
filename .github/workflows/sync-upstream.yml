@@ -35,7 +35,10 @@ jobs:
         id: behind
         run: |
           RAW=$(git rev-list --count origin/master..forge/master)
-          HONEST=$(git cherry origin/master forge/master | grep -c '^+')
+          # `grep -c` prints 0 and exits 1 when nothing matches, which under
+          # `bash -e` killed the whole run every time we were already up to
+          # date. Swallow the exit status but keep the count.
+          HONEST=$(git cherry origin/master forge/master | grep -c '^+' || true)
           echo "raw=$RAW honest=$HONEST (content-absent commits)"
           echo "behind=$HONEST" >> "$GITHUB_OUTPUT"
 
