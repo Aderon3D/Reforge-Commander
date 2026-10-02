@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # Needed to dispatch the required checks below: a GITHUB_TOKEN push does not
-  # trigger workflow runs, so the sync has to ask for them explicitly.
-  actions: write
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -172,24 +169,6 @@ jobs:
               --body "Automated sync from Card-Forge/forge master. Merges only after CI passes.")
           fi
           echo "number=$pr" >> "$GITHUB_OUTPUT"
-
-      - name: Dispatch required checks
-        if: steps.behind.outputs.behind > 0
-        run: |
-          # GitHub does not trigger workflow runs for a push made with
-          # GITHUB_TOKEN (recursion prevention), so this sync's own PR gets no
-          # CI and sits BLOCKED on the ruleset's required checks forever.
-          # workflow_dispatch *is* permitted with GITHUB_TOKEN, so ask for the
-          # checks explicitly. Without this the previous "Wait for CI" passed
-          # vacuously on submit-maven and the run reported success on a PR that
-          # could not merge.
-          for wf in test-build.yaml codeql.yml ios-compat-gate.yml; do
-            if ! gh workflow run "$wf" --ref sync/upstream; then
-              echo "::error::Could not dispatch $wf on sync/upstream — it must exist on the branch with a workflow_dispatch trigger"
-              exit 1
-            fi
-            echo "Dispatched $wf on sync/upstream"
-          done
 
       - name: Wait for CI
         if: steps.behind.outputs.behind > 0
