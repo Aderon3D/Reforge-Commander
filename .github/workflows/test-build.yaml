@@ -7,11 +7,6 @@ on:
   push:
     branches: [master]
   pull_request:
-  # The sync force-pushes sync/upstream (it rebuilds the branch from master each
-  # run), and a force-push does not fire `synchronize`, so the sync's own PR
-  # never gets CI and sits BLOCKED on the ruleset forever. It dispatches this
-  # workflow explicitly instead.
-  workflow_dispatch:
 
 jobs:
   build:
