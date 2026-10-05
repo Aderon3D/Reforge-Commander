@@ -24,6 +24,8 @@ on:
       - '**/pom.xml'
       - 'forge-gui-ios/**'
       - '.github/workflows/ios-compat-gate.yml'
+  # Dispatched by the sync, whose force-push does not trigger pull_request.
+  workflow_dispatch:
 
 jobs:
   audit:

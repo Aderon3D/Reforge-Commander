@@ -8,6 +8,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Needed to dispatch the required checks below.
+  actions: write
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -169,6 +171,25 @@ jobs:
               --body "Automated sync from Card-Forge/forge master. Merges only after CI passes.")
           fi
           echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch required checks
+        if: steps.behind.outputs.behind > 0
+        run: |
+          # This job rebuilds sync/upstream from master every run, so every push
+          # is a forced update -- and a force-push to a PR head does not fire
+          # `synchronize`. Without this, no CI ever runs on the sync's own PR and
+          # it sits BLOCKED on the Condom ruleset indefinitely. workflow_dispatch
+          # does work with this token.
+          #
+          # Dispatched after the push so the workflow files on sync/upstream
+          # already carry the workflow_dispatch trigger.
+          for wf in test-build.yaml codeql.yml ios-compat-gate.yml; do
+            if ! gh workflow run "$wf" --ref sync/upstream; then
+              echo "::error::Could not dispatch $wf on sync/upstream -- it must exist on the branch with a workflow_dispatch trigger"
+              exit 1
+            fi
+            echo "Dispatched $wf on sync/upstream"
+          done
 
       - name: Wait for CI
         if: steps.behind.outputs.behind > 0
