@@ -176,7 +176,10 @@ jobs:
               --title "chore: sync with upstream forge (${{ steps.behind.outputs.behind }} commits)" \
               --body "Automated sync from Card-Forge/forge master. Merges only after CI passes.")
           fi
-          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          # gh pr create prints the PR *URL*, not its number, so the first run
+          # after a merge reported "PR #https://github.com/..." in the notice.
+          # gh pr view accepts either form.
+          echo "number=$(gh pr view "$pr" --json number --jq '.number')" >> "$GITHUB_OUTPUT"
 
       - name: Wait for CI
         if: steps.behind.outputs.behind > 0
