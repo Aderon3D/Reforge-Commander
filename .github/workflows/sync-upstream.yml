@@ -23,12 +23,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # A GITHUB_TOKEN push triggers no workflow runs at all, so the sync's
-          # own PR never gets CI and stays BLOCKED on the Condom ruleset forever.
-          # Any real token fixes it -- the push is always a forced update, and a
-          # forced update by a real user still fires `synchronize` (verified).
-          # Set the SYNC_PUSH_TOKEN secret to a fine-grained PAT with
-          # Contents: write + Pull requests: write.
+          # A GITHUB_TOKEN push does trigger the pull_request runs, but they
+          # land in "awaiting maintainer approval" and the required checks stay
+          # invisible until a human approves them. A PAT is a real user, so its
+          # runs start immediately -- set SYNC_PUSH_TOKEN (fine-grained, with
+          # Contents: write + Pull requests: write) to skip that approval step.
+          # Without it the sync still works: it arms auto-merge and waits for
+          # whoever reviews the PR rather than burning the whole timeout.
           token: ${{ secrets.SYNC_PUSH_TOKEN || github.token }}
 
       - name: Fetch upstream
@@ -179,14 +180,23 @@ jobs:
 
       - name: Wait for CI
         if: steps.behind.outputs.behind > 0
+        id: ci
+        env:
+          HAS_TOKEN: ${{ secrets.SYNC_PUSH_TOKEN != '' }}
         run: |
           HEAD=${{ steps.push.outputs.head }}
+          PR=${{ steps.pr.outputs.number }}
           # Exactly what the Condom ruleset requires, plus the documented
           # platform-parity gate. Waiting on "any check" is not enough: the
           # automatic dependency submission finishes in seconds and used to
           # satisfy this step on its own.
           REQUIRED=("Test with Java 21" "CodeQL" "iOS/MobiVM link audit")
-          for i in $(seq 1 90); do
+          # With a PAT the runs start immediately, so wait them out in full.
+          # Without one they park in the approval queue and the required checks
+          # never appear until a human approves them -- waiting the full 30
+          # minutes only ever produced a red run.
+          if [ "$HAS_TOKEN" = "true" ]; then MAX=90; else MAX=6; fi
+          for i in $(seq 1 "$MAX"); do
             DATA=$(gh api "repos/${{ github.repository }}/commits/$HEAD/check-runs?per_page=100" 2>/dev/null || echo '{"check_runs":[]}')
             PENDING=""
             FAILED=""
@@ -201,7 +211,7 @@ jobs:
                 *) FAILED="$FAILED $name=$STATE" ;;
               esac
             done
-            echo "iteration ${i}/90 — pending:${PENDING:- none} failed:${FAILED:- none}"
+            echo "iteration ${i}/${MAX} — pending:${PENDING:- none} failed:${FAILED:- none}"
             if [ -n "$FAILED" ]; then
               echo "::error::CI checks failed on $HEAD:$FAILED"
               echo "$DATA" | jq -r '.check_runs[] | "\(.name): \(.conclusion // .status)"'
@@ -213,11 +223,27 @@ jobs:
             fi
             sleep 20
           done
-          echo "::error::Timed out waiting for CI checks on $HEAD"
-          exit 1
+          if [ "$HAS_TOKEN" = "true" ]; then
+            echo "::error::Timed out waiting for CI checks on $HEAD"
+            exit 1
+          fi
+          # No PAT: the runs are parked in the maintainer-approval queue. The
+          # nightly job has done its job -- commits pushed, PR opened -- so arm
+          # auto-merge and finish green instead of timing out red. The PR lands
+          # by itself as soon as somebody approves the runs, and this never
+          # holds up the next sync, which force-updates the same branch.
+          if [ "$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null' 2>/dev/null)" = "true" ]; then
+            echo "Auto-merge already armed on PR #$PR."
+            echo "::notice title=CI awaiting approval::Required checks on PR #$PR need manual approval; auto-merge already armed."
+          elif gh pr merge "$PR" --merge --auto; then
+            echo "::notice title=CI awaiting approval::Required checks on PR #$PR need manual approval; auto-merge armed."
+          else
+            echo "::warning::Could not arm auto-merge on PR #$PR -- approve the runs and merge it manually."
+          fi
+          echo "armed=true" >> "$GITHUB_OUTPUT"
 
       - name: Merge pull request
-        if: steps.behind.outputs.behind > 0
+        if: steps.behind.outputs.behind > 0 && steps.ci.outputs.armed != 'true'
         run: |
           PR=${{ steps.pr.outputs.number }}
           gh pr merge "$PR" --merge --auto || gh pr merge "$PR" --merge
