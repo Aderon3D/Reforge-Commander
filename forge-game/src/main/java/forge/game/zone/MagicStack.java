@@ -62,6 +62,8 @@ import java.util.stream.Collectors;
  * @version $Id$
  */
 public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbilityStackInstance> {
+    private static final int MAX_TRIGGER_REPEATS = 50;
+
     private final List<SpellAbility> simultaneousStackEntryList = Lists.newArrayList();
     private final List<SpellAbility> activePlayerSAs = Lists.newArrayList();
 
@@ -80,6 +82,7 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
     private final List<SpellAbility> thisTurnActivated = Lists.newArrayList();
 
     private Card curResolvingCard = null;
+    private final Map<Integer, Integer> triggerRepeats = new HashMap<>();
 
     private final Game game;
 
@@ -107,6 +110,7 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         thisTurnCast.clear();
         thisTurnActivated.clear();
         curResolvingCard = null;
+        triggerRepeats.clear();
         frozenStack.clear();
         clearUndoStack();
         game.updateStackForView();
@@ -213,8 +217,9 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         Player activator = sp.getActivatingPlayer();
 
         // Stop infinite loop. E.g. Scalelord Reckoner mirrormatch with only triggering targets is a draw.
+        // CR 104.4b the same goes for a mandatory trigger that keeps coming back before the stack clears
         // 500 still leaves room for legitimate storm-style chains; catches harmful loops 2x faster than the old 999.
-        if (game.getStack().size() > 500) { // doc:11a DONE
+        if (game.getStack().size() > 500 || (si == null && isRepeatingTrigger(sp))) { // doc:11a DONE
             for (Player p : game.getPlayers()) {
                 p.loopDraw();
             }
@@ -499,12 +504,34 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         game.fireEvent(new GameEventSpellAbilityCast(sp, si, stackIndex));
     }
 
+    private boolean isRepeatingTrigger(final SpellAbility sp) {
+        if (!sp.isTrigger()) {
+            // a player did something
+            triggerRepeats.clear();
+        }
+        if (!sp.isMandatory() || sp.usesTargeting()) {
+            return false;
+        }
+        final int id = sp.getSourceTrigger();
+        for (final SpellAbilityStackInstance si : stack) {
+            if (si.isStateTrigger(id)) {
+                return false;
+            }
+        }
+        return triggerRepeats.merge(id, 1, Integer::sum) > MAX_TRIGGER_REPEATS;
+    }
+
+    public final void clearTriggerRepeats() {
+        triggerRepeats.clear();
+    }
+
     private void recordUndoableActions(SpellAbility sa) {
         Player activator = sa.getActivatingPlayer();
-        // either push onto or clear undo stack based on whether spell/ability is undoable
+        // either push onto or clear undo stack based on whether SA is undoable
         if (sa.isUndoable()) {
             if (!canUndo(activator)) {
-                clearUndoStack(); //clear if undo stack owner changes
+                //clear if undo stack owner changes
+                clearUndoStack();
                 undoStackOwner = activator;
             }
             undoStack.push(sa);
@@ -521,14 +548,15 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         return undoStackOwner == player;
     }
     public final boolean undo() {
-        if (undoStack.isEmpty()) { return false; }
+        if (undoStack.isEmpty()) {
+            return false;
+        }
 
         SpellAbility sa = undoStack.peek();
+        clearUndoStack(sa);
         if (sa.undo()) {
-            clearUndoStack(sa);
             new ManaRefundService(sa).refundManaPaid();
         } else {
-            clearUndoStack(sa);
             for (Mana pay : sa.getPayingMana()) {
                 clearUndoStack(pay.getManaAbility().getSourceSA());
             }
