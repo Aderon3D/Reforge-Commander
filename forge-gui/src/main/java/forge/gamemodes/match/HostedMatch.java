@@ -20,6 +20,7 @@ import forge.game.player.PlayerView;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.net.NetworkGameEventListener;
 import forge.gamemodes.net.server.HostingServer;
+import forge.gamemodes.replay.ReplaySession;
 import forge.gamemodes.quest.QuestController;
 import forge.gui.FThreads;
 import forge.gui.GuiBase;
@@ -157,7 +158,7 @@ public class HostedMatch {
         SoundSystem.instance.setBackgroundMusic(this.matchPlaylist == null ? MusicPlaylist.MATCH : this.matchPlaylist);
 
         game = match.createGame();
-        game.EXPERIMENTAL_RESTORE_SNAPSHOT = FModel.getPreferences().getPrefBoolean(FPref.MATCH_EXPERIMENTAL_RESTORE);
+        //game.EXPERIMENTAL_RESTORE_SNAPSHOT = FModel.getPreferences().getPrefBoolean(FPref.MATCH_EXPERIMENTAL_RESTORE);
         game.AI_TIMEOUT = FModel.getPreferences().getPrefInt(FPref.MATCH_AI_TIMEOUT);
 
         StaticData.instance().setSourceImageForClone(FModel.getPreferences().getPrefBoolean(FPref.UI_CLONE_MODE_SOURCE));
@@ -251,6 +252,9 @@ public class HostedMatch {
             }
         }
 
+        // Record this game for later playback (null when off, or when no human is playing)
+        final ReplaySession replay = ReplaySession.begin(game, humanControllers);
+
         for (final Entry<IGuiGame, Collection<PlayerView>> e : playersPerGui.asMap().entrySet()) {
             e.getKey().openView(new TrackableCollection<>(e.getValue()));
         }
@@ -288,7 +292,14 @@ public class HostedMatch {
                 currentGame.subscribeToEvents(playbackControl);
             }
             // Actually start the game!
-            match.startGame(currentGame, startGameHook);
+            try {
+                match.startGame(currentGame, startGameHook);
+            } catch (final RuntimeException | Error ex) {
+                if (replay != null) {
+                    replay.abort();
+                }
+                throw ex;
+            }
             // this function waits?
             if (endGameHook != null){
                 endGameHook.run();
@@ -303,6 +314,10 @@ public class HostedMatch {
                         fwd.flush();
                     }
                 }
+            }
+
+            if (replay != null) {
+                replay.finish();
             }
 
             // After game is over...

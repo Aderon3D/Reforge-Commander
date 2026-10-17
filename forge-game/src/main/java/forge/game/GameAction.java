@@ -2514,7 +2514,6 @@ public class GameAction {
         }
 
         if (isFirstGame) {
-            final Player winner = goesFirst;
             game.fireEvent(new GameEventFlipCoin(goesFirst.getView(), true, true));
         }
 
