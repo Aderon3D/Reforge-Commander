@@ -2514,7 +2514,6 @@ public class GameAction {
         }
 
         if (isFirstGame) {
-            final Player winner = goesFirst;
             game.fireEvent(new GameEventFlipCoin(goesFirst.getView(), true, true));
         }
 
@@ -2653,6 +2652,7 @@ public class GameAction {
 
             if (p.hasLost()) { // the person who should take initiative is gone, it goes to next player
                 takeInitiative(game.getNextPlayerAfter(p), set);
+                return;
             }
 
             game.setHasInitiative(p);
@@ -2682,10 +2682,9 @@ public class GameAction {
             switch (game.getReplacementHandler().run(ReplacementType.Scry, repParams)) {
                 case NotReplaced:
                     break;
-                case Updated: {
+                case Updated:
                     playerScry = (int) repParams.get(AbilityKey.Num);
                     break;
-                }
                 default:
                     continue;
             }
