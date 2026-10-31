@@ -348,7 +348,6 @@ public class CardView extends GameEntityView {
     }
     void updateCounters(Card c) {
         super.updateCounters(c);
-        updateLethalDamage(c);
         CardStateView state = getCurrentState();
         state.updatePower(c);
         state.updateToughness(c);
@@ -983,30 +982,6 @@ public class CardView extends GameEntityView {
         return alternate0 ? getAlternateState() : getCurrentState();
     }
 
-    public boolean wasDestroyed() {
-        return get(TrackableProperty.WasDestroyed);
-    }
-    void updateWasDestroyed(boolean value) {
-        set(TrackableProperty.WasDestroyed, value);
-    }
-    public boolean needsUntapAnimation() {
-        return get(TrackableProperty.NeedsUntapAnimation);
-    }
-    public void updateNeedsUntapAnimation(boolean value) {
-        set(TrackableProperty.NeedsUntapAnimation, value);
-    }
-    public boolean needsTapAnimation() {
-        return get(TrackableProperty.NeedsTapAnimation);
-    }
-    public void updateNeedsTapAnimation(boolean value) {
-        set(TrackableProperty.NeedsTapAnimation, value);
-    }
-    public boolean needsTransformAnimation() {
-        return get(TrackableProperty.NeedsTransformAnimation);
-    }
-    public void updateNeedsTransformAnimation(boolean value) {
-        set(TrackableProperty.NeedsTransformAnimation, value);
-    }
     public boolean useCardArt() {
         // prevent NPE
         if (getCurrentState() == null)
@@ -1458,14 +1433,6 @@ public class CardView extends GameEntityView {
                 num = num - c.getBaseToughness() + c.getAlternateState().getBaseToughness();
             }
             set(TrackableProperty.Toughness, num);
-            /*
-             * The VAssignCombatDamage dialog reads a stale LethalDamage property that was cached while the token’s
-             * toughness was still 0.
-             *
-             * TrackableProperty.LethalDamage is only refreshed from updateDamage, updateAssignedDamage, updateCounters,
-             * and Card.updatePTforView(). Tokens get their P/T set after creation (setBaseToughness and similar), and
-             * that path never refreshes the view’s lethal value. The view keeps the 0 from when the token was created.
-             * */
             CardView.this.updateLethalDamage(c);
         }
         void updateToughness(CardState c) {
