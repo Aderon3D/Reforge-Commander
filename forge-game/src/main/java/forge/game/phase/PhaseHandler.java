@@ -60,8 +60,7 @@ import java.util.*;
  * @author Forge
  * @version $Id: PhaseHandler.java 13001 2012-01-08 12:25:25Z Sloth $
  */
-public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
-    private static final long serialVersionUID = 5207222278370963197L;
+public class PhaseHandler implements IHasForgeLog {
 
     // used for debugging phase timing
     private final StopWatch sw = new StopWatch();
@@ -70,8 +69,8 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
     private PhaseType phase = null;
     private int turn = 0;
 
-    private final transient Stack<ExtraTurn> extraTurns = new Stack<>();
-    private final transient Map<PhaseType, Stack<ExtraPhase>> extraPhases = Maps.newEnumMap(PhaseType.class);
+    private final Stack<ExtraTurn> extraTurns = new Stack<>();
+    private final Map<PhaseType, Stack<ExtraPhase>> extraPhases = Maps.newEnumMap(PhaseType.class);
 
     private int nUpkeepsThisTurn = 0;
     private int nUpkeepsThisGame = 0;
@@ -80,21 +79,21 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
     private int nEndOfTurnsThisTurn = 0;
     private int planarDiceSpecialActionThisTurn = 0;
 
-    private transient Player playerTurn = null;
-    private transient Player playerPreviousTurn = null;
+    private Player playerTurn = null;
+    private Player playerPreviousTurn = null;
 
     // priority player
 
-    private transient Player pPlayerPriority = null;
-    private transient Player pFirstPriority = null;
-    private transient Combat combat = null;
+    private Player pPlayerPriority = null;
+    private Player pFirstPriority = null;
+    private Combat combat = null;
     private boolean skipDamageSteps = false;
     private boolean bRepeatCleanup = false;
 
     /** The need to next phase. */
     private boolean givePriorityToPlayer = false;
 
-    private final transient Game game;
+    private final Game game;
 
 
     public PhaseHandler(final Game game0) {
@@ -115,7 +114,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
     }
 
     public final boolean isPlayerTurn(final Player player) {
-        return player.equals(playerTurn);
+        return playerTurn != null && playerTurn.equals(player);
     }
 
     public final Player getPlayerTurn() {
@@ -126,6 +125,11 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         playerTurn = playerTurn0;
         game.updatePlayerTurnForView();
         resetPriority();
+    }
+
+    /** True if the next turn is this player's, or under shared team turns their team's (CR 805.4). */
+    public final boolean isPlayerNextTurn(final Player player) {
+        return getNextTurn().equals(player);
     }
 
     public final Player getPreviousPlayerTurn() {
@@ -186,6 +190,9 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     }
                 }
                 playerTurn.incrementTurn();
+                if (playerTurn.isExtraTurn()) {
+                    playerTurn.incrementExtraTurnsPlayed();
+                }
 
                 final int lands = CardLists.count(playerTurn.getLandsInPlay(), CardPredicates.UNTAPPED);
                 playerTurn.setNumPowerSurgeLands(lands);
@@ -223,7 +230,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
 
             case COMBAT_BEGIN:
             case COMBAT_DECLARE_ATTACKERS:
-                return playerTurn.isSkippingCombat();
+                return !playerTurn.isInGame();
 
             case COMBAT_DECLARE_BLOCKERS:
                 skipDamageSteps = !inCombat() || combat.getAttackers().isEmpty();
@@ -241,6 +248,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         boolean skipped = false;
 
         game.getTriggerHandler().resetActiveTriggers();
+        game.getUndoManager().barrier("Phase Begin.");
         if (isSkippingPhase(phase)) {
             skipped = true;
             givePriorityToPlayer = false;
@@ -526,6 +534,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                 planarDiceSpecialActionThisTurn = 0;
                 // Play the End Turn sound
                 game.fireEvent(new GameEventTurnEnded());
+                game.getUndoManager().barrier("Turn Ended.");
                 break;
             default: // no action
         }
@@ -541,6 +550,9 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     return;
                 }
 
+                if (!game.getUndoManager().isOwner(whoDeclares)) {
+                    game.getUndoManager().barrier("Opponent declared attackers");
+                }
                 whoDeclares.getController().declareAttackers(playerTurn, combat);
                 combat.removeAbsentCombatants();
 
@@ -600,7 +612,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
             for (final Card attacker : combat.getAttackers()) {
                 if (!attacker.attackVigilance()) {
                     attacker.setTapped(false);
-                    if (attacker.tap(true, true, null, null)) tapped.add(attacker);
+                    if (attacker.tap(true, null, null)) tapped.add(attacker);
                 }
             }
             if (!tapped.isEmpty()) {
@@ -614,7 +626,6 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
             return;
         }
 
-        // Reset all active Triggers
         game.getTriggerHandler().resetActiveTriggers();
 
         // Prepare and fire event 'attackers declared'
@@ -667,6 +678,9 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     repRunParams.put(AbilityKey.Player, whoDeclaresBlockers);
                     ReplacementResult repres = game.getReplacementHandler().run(ReplacementType.DeclareBlocker, repRunParams);
                     if (repres == ReplacementResult.NotReplaced) {
+                        if (!game.getUndoManager().isOwner(whoDeclaresBlockers)) {
+                            game.getUndoManager().barrier("Opponent declared blockers");
+                        }
                         // If not replaced, run normal declare blockers
                         whoDeclaresBlockers.getController().declareBlockers(p, combat);
                     }
@@ -891,10 +905,10 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         return nextPlayer;
     }
 
-    public final synchronized boolean is(final PhaseType phase0, final Player player0) {
-        return phase == phase0 && playerTurn.equals(player0);
+    public final boolean is(final PhaseType phase0, final Player player0) {
+        return phase == phase0 && isPlayerTurn(player0);
     }
-    public final synchronized boolean is(final PhaseType phase0) {
+    public final boolean is(final PhaseType phase0) {
         return phase == phase0;
     }
 
@@ -1031,7 +1045,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
 
     public void mainGameLoop() {
         // MAIN GAME LOOP
-        while (!game.isGameOver() && !(game.getAge() == GameStage.RestartedByKarn)) {
+        while (!game.isGameOver() && game.getAge() != GameStage.RestartedByKarn) {
             mainLoopStep();
         }
     }
@@ -1042,7 +1056,6 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                 sw.start();
             }
 
-            game.fireEvent(new GameEventPlayerPriority(PlayerView.get(playerTurn), phase, PlayerView.get(getPriorityPlayer())));
             List<SpellAbility> chosenSa = null;
 
             int loopCount = 0;
@@ -1051,21 +1064,26 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     // state-based effects check could lead to game over
                     return;
                 }
+                if (pPlayerPriority.hasLost()) {
+                    // CR 800.4a If the player who left the game had priority at the time they left,
+                    // priority passes to the next player in turn order who's still in the game.
+                    break;
+                }
+                // CR 117.3 A player receives priority once state-based actions are done, and again after each thing they do
+                game.fireEvent(new GameEventPlayerPriority(PlayerView.get(playerTurn), phase, PlayerView.get(getPriorityPlayer())));
                 game.stashGameState();
 
                 chosenSa = pPlayerPriority.getController().chooseSpellAbilityToPlay();
 
-                // this needs to come after chosenSa so it sees you conceding on own turn
-                if (playerTurn.hasLost() && pPlayerPriority.equals(playerTurn) && pFirstPriority.equals(playerTurn)) {
-                    // If the active player has lost, and they have priority, set the next player to have priority
-                    System.out.println("Active player is no longer in the game...");
-                    pPlayerPriority = game.getNextPlayerAfter(getPriorityPlayer());
-                    pFirstPriority = pPlayerPriority;
-                }
-
                 if (chosenSa == null) {
                     break; // that means 'I pass'
                 }
+
+                // An opponent (AI or remote human) acted: the player now knows something, so no undo past this point
+                if (!game.getUndoManager().isOwner(pPlayerPriority)) {
+                    game.getUndoManager().barrier("Opponent acted");
+                }
+
                 if (DEBUG_PHASES) {
                     System.out.print("... " + pPlayerPriority + " plays " + chosenSa);
                 }
@@ -1126,7 +1144,14 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         if (DEBUG_PHASES) {
             System.out.println(TextUtil.concatWithSpace(playerTurn.toString(),TextUtil.addSuffix(phase.toString(),":"), pPlayerPriority.toString(),"is active, previous was", nextPlayer.toString()));
         }
-        if (pFirstPriority == nextPlayer) {
+        boolean nobodyPassed = false;
+        if (pFirstPriority.hasLost()) {
+            // a player who left never receives priority again, so their successor takes their place as first
+            pFirstPriority = game.getNextPlayerAfter(pFirstPriority);
+            // if the holder left too and nobody between them remains, no player still in the game has passed
+            nobodyPassed = pPlayerPriority.hasLost() && pFirstPriority == nextPlayer;
+        }
+        if (pFirstPriority == nextPlayer && !nobodyPassed) {
             if (game.getStack().isEmpty()) {
                 if (playerTurn.hasLost()) {
                     setPriority(game.getNextPlayerAfter(playerTurn));
@@ -1176,7 +1201,6 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
 
         if (!allAffectedCards.isEmpty()) {
             game.fireEvent(new GameEventCardStatsChanged(allAffectedCards));
-            allAffectedCards.clear();
             // Update flashback views after static abilities have been recalculated,
             // so play-from-zone abilities (e.g. Bolas's Citadel) are reflected
             game.getPlayers().forEach(Player::updateFlashbackForView);
@@ -1187,6 +1211,47 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
     public final boolean devAdvanceToPhase(PhaseType targetPhase) {
         return devAdvanceToPhase(targetPhase, null);
     }
+
+    /**
+     * For AI simulation on a copy of the game that is in the declare attackers step: runs the declaration again (the
+     * attacking player's controller is asked, attackers tap, attack triggers fire), after the caller has cleared the
+     * attackers of the copied combat.
+     */
+    public final void devDeclareAttackers() {
+        declareAttackersTurnBasedAction();
+    }
+
+    /**
+     * For AI simulation on a copy of the game: plays on from the current phase through the end of this turn into the
+     * given phase of the next turn (upkeep, draw step and so on all really happen, so the next player draws their
+     * card). Like {@link #devAdvanceToPhase(PhaseType, Runnable)} it does not hand out priority.
+     *
+     * @return false if the game ended, state based effects ended it, or the turn order is reversed (not simulated)
+     */
+    public final boolean devAdvanceThroughTurnEnd(PhaseType targetPhase, Runnable resolver) {
+        if (playerTurn.isPhasesReversed()) {
+            return false;
+        }
+        final int startTurn = turn;
+        int guard = 0;
+        while (turn == startTurn || phase.isBefore(targetPhase, false)) {
+            if (++guard > 60 || game.isGameOver() || checkStateBasedEffects()) {
+                return false;
+            }
+            if (resolver != null) {
+                resolver.run();
+            }
+            onPhaseEnd();
+            // ending a phase (end of turn effects, cleanup) can put triggers on the stack: they must be gone before the next one
+            for (int i = 0; resolver != null && i < 3 && !game.getStack().isEmpty() && !game.isGameOver(); i++) {
+                resolver.run();
+            }
+            advanceToNextPhase();
+            onPhaseBegin();
+        }
+        checkStateBasedEffects();
+        return !game.isGameOver();
+    }
     public final boolean devAdvanceToPhase(PhaseType targetPhase, Runnable resolver) {
         boolean isTopsy = playerTurn.isPhasesReversed();
         while (phase.isBefore(targetPhase, isTopsy)) {
@@ -1195,6 +1260,10 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
             }
             if (resolver != null) {
                 resolver.run();
+                if (game.isGameOver()) {
+                    // resolving the stack ended the game, leaving effects on it that nothing will ever resolve
+                    return false;
+                }
             }
             onPhaseEnd();
             advanceToNextPhase();
