@@ -15,11 +15,13 @@ import forge.deck.FDeckEditor;
 import forge.deck.io.DeckPreferences;
 import forge.game.GameType;
 import forge.game.player.RegisteredPlayer;
+import forge.gamemodes.limited.CommanderDraftUtil;
 import forge.gamemodes.match.HostedMatch;
 import forge.gamemodes.net.EventFormat;
 import forge.gui.FThreads;
 import forge.gui.GuiBase;
 import forge.gui.util.SGuiChoose;
+import forge.toolbox.Frost;
 import forge.util.GuiPrefBinders;
 import forge.itemmanager.DeckManager;
 import forge.itemmanager.ItemManagerConfig;
@@ -66,6 +68,7 @@ public class LoadDraftScreen extends LaunchScreen {
         cbGamesInMatch.addItem("1");
         cbGamesInMatch.addItem("3");
         cbGamesInMatch.addItem("5");
+        cbGamesInMatchBinder.bind();
     }
 
     @Override
@@ -86,7 +89,8 @@ public class LoadDraftScreen extends LaunchScreen {
         if (deck == null) { return; }
 
         DeckPreferences.setDraftDeck(deck.getName());
-        Forge.openScreen(new FDeckEditor(FDeckEditor.EditorConfigDraft, deck));
+        Forge.openScreen(new FDeckEditor(CommanderDraftUtil.isCommanderDraftDeck(deck.getDeck())
+                ? FDeckEditor.EditorConfigCommanderDraft : FDeckEditor.EditorConfigDraft, deck));
     }
 
     @Override
@@ -112,6 +116,7 @@ public class LoadDraftScreen extends LaunchScreen {
         lstDecks.setBounds(x, y, w, listHeight);
         y += listHeight + FDeckChooser.PADDING;
         lblTip.setBounds(x, y, w, labelHeight);
+        lblTip.setVisible(!Frost.isOn());
         y += labelHeight + FDeckChooser.PADDING;
     }
 
