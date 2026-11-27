@@ -36,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -66,29 +67,79 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
     private final Map<String, Integer> artIds = Maps.newHashMap();
 
     private final CardEdition.Collection editions;
-    private final Set<String> filtered;
+    // left out of the card pools but still found by name, so decks holding them keep working
+    private volatile Set<String> hiddenCards = Collections.emptySet();
 
     private final Map<String, Boolean> nonLegendaryCreatureNames = Maps.newHashMap();
 
     public enum CardArtPreference implements Comparator<CardEdition> {
-        LATEST_ART_ALL_EDITIONS(false, true),
-        LATEST_ART_CORE_EXPANSIONS_REPRINT_ONLY(true, true),
-        ORIGINAL_ART_ALL_EDITIONS(false, false),
-        ORIGINAL_ART_CORE_EXPANSIONS_REPRINT_ONLY(true, false);
+        LATEST_ART_ALL_EDITIONS(false, true, false),
+        LATEST_ART_CORE_EXPANSIONS_REPRINT_ONLY(true, true, false),
+        ORIGINAL_ART_ALL_EDITIONS(false, false, false),
+        ORIGINAL_ART_CORE_EXPANSIONS_REPRINT_ONLY(true, false, false),
+        /** Oldest print that is not white-bordered (falls back to any print if a card only exists with another border). */
+        ORIGINAL_ART_BLACK_BORDER_ALL_EDITIONS(false, false, true),
+        ORIGINAL_ART_BLACK_BORDER_CORE_EXPANSIONS_REPRINT_ONLY(true, false, true);
 
         public final boolean filterSets;
         public final boolean latestFirst;
+        public final boolean blackBorderOnly;
 
-        CardArtPreference(boolean filterIrregularSets, boolean latestSetFirst) {
+        CardArtPreference(boolean filterIrregularSets, boolean latestSetFirst, boolean blackBorder) {
             filterSets = filterIrregularSets;
             latestFirst = latestSetFirst;
+            blackBorderOnly = blackBorder;
         }
 
         private static final EnumSet<Type> ALLOWED_SET_TYPES = EnumSet.of(Type.CORE, Type.EXPANSION, Type.REPRINT);
 
+        public static CardArtPreference of(boolean latest, boolean coreExpansionOnly, boolean blackBorder) {
+            if (latest)
+                return coreExpansionOnly ? LATEST_ART_CORE_EXPANSIONS_REPRINT_ONLY : LATEST_ART_ALL_EDITIONS;
+            if (blackBorder)
+                return coreExpansionOnly ? ORIGINAL_ART_BLACK_BORDER_CORE_EXPANSIONS_REPRINT_ONLY : ORIGINAL_ART_BLACK_BORDER_ALL_EDITIONS;
+            return coreExpansionOnly ? ORIGINAL_ART_CORE_EXPANSIONS_REPRINT_ONLY : ORIGINAL_ART_ALL_EDITIONS;
+        }
+
+        private boolean isBlackBordered(CardEdition ed) {
+            return ed.getBorderColor() == CardEdition.BorderColor.BLACK;
+        }
+
+        /** Whether the set type of the edition is allowed by this preference (Core, Expansion and Reprint sets only for the filtered ones). */
+        public boolean acceptsSetType(CardEdition ed) {
+            return ed != null && (!filterSets || ALLOWED_SET_TYPES.contains(ed.getType()));
+        }
+
         public boolean accept(CardEdition ed) {
             if (ed == null) return false;
+            if (blackBorderOnly && !isBlackBordered(ed)) return false;
             return !filterSets || ALLOWED_SET_TYPES.contains(ed.getType());
+        }
+
+        /** Edition rank (see {@link #getEditionRank}): the original Core and Expansion releases. */
+        public static final int RANK_ORIGINAL = 0;
+        /** Edition rank: any other regular product (Draft sets, Commander decks, Starter sets, ...). */
+        public static final int RANK_OTHER = 1;
+        /** Edition rank: promos and compilation sets, only used when nothing better exists. */
+        public static final int RANK_COMPILATION = 2;
+
+        /** Set types that are promos or compilations of cards printed elsewhere, rather than original releases. */
+        private static final EnumSet<Type> COMPILATION_SET_TYPES = EnumSet.of(Type.REPRINT, Type.PROMO,
+                Type.COLLECTOR_EDITION, Type.ONLINE, Type.BOXED_SET, Type.DUEL_DECK);
+
+        /**
+         * How "original" an edition is, used by the Original Art (Black Border) preferences, where a lower rank
+         * always wins over the release date: Core and Expansion sets first, then any other regular product,
+         * and promos and compilation sets (The List, Masters sets, MTGO promos, Secret Lair...) last.
+         * Other preferences do not rank editions: every edition gets <code>RANK_ORIGINAL</code>.
+         */
+        public int getEditionRank(CardEdition ed) {
+            if (!blackBorderOnly || ed == null)
+                return RANK_ORIGINAL;
+            Type type = ed.getType();
+            if (type == Type.CORE || type == Type.EXPANSION)
+                return RANK_ORIGINAL;
+            return COMPILATION_SET_TYPES.contains(type) ? RANK_COMPILATION : RANK_OTHER;
         }
 
         @Override
@@ -97,6 +148,11 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
                 return 0;
             if(filterSets && (ALLOWED_SET_TYPES.contains(o1.getType()) != ALLOWED_SET_TYPES.contains(o2.getType())))
                 return ALLOWED_SET_TYPES.contains(o1.getType()) ? -1 : 1;
+            if (blackBorderOnly && isBlackBordered(o1) != isBlackBordered(o2))
+                return isBlackBordered(o1) ? -1 : 1;
+            int rankDiff = Integer.compare(getEditionRank(o1), getEditionRank(o2));
+            if (rankDiff != 0)
+                return rankDiff;
             return (latestFirst ? -1 : 1) * o1.getDate().compareTo(o2.getDate());
         }
     }
@@ -104,6 +160,9 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
     // Placeholder to setup default art Preference - to be moved from Static Data!
     private CardArtPreference defaultCardArtPreference;
     private BiPredicate<String, String> preferredLanguageAvailability;
+    // (edition, collector number) of prints to avoid when the card has another print
+    private BiPredicate<CardEdition, String> printExclusion;
+    private int printExclusionVersion;
     private boolean initialized;
 
     public static class CardRequest {
@@ -309,8 +368,7 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
         }
     }
 
-    public CardDb(Map<String, CardRules> rules, CardEdition.Collection editions0, Set<String> filteredCards) {
-        this.filtered = filteredCards;
+    public CardDb(Map<String, CardRules> rules, CardEdition.Collection editions0) {
         this.rulesByPrimaryName = rules;
         this.editions = editions0;
 
@@ -318,13 +376,9 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
 
         // create faces list from rules
         for (final CardRules rule : rules.values()) {
-            // Collect placeholder-face rules unconditionally so they get supplied
-            // even when filtered out and remain reachable via rulesByName.
             if (rule.hasPlaceholderFaces()) {
                 needsPlaceholderFaces.add(rule);
             }
-            if (filteredCards.contains(rule.getPreInitName()))
-                continue;
             for (ICardFace face : rule.getAllFaces()) {
                 addFaceToDbNames(face, rule);
             }
@@ -481,8 +535,7 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
                 return;
             }
         }
-        if (rulesByPrimaryName.putIfAbsent(cr.getName(), cr) == null
-                && !filtered.contains(cr.getPreInitName())) {
+        if (rulesByPrimaryName.putIfAbsent(cr.getName(), cr) == null) {
             for (ICardFace face : cr.getAllFaces()) {
                 addFaceToDbNames(face, cr);
             }
@@ -509,7 +562,14 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
     private void reIndex(CardRules cr) {
         List<PaperCard> prints = allCardsByRules.get(cr);
         if (!prints.isEmpty()) {
-            uniqueCardsByRules.put(cr, getBestUniquePrint(prints));
+            PaperCard best = getBestUniquePrint(prints);
+            String preferredRequest = artPrefs.get(cr.getName());
+            if (preferredRequest != null) {
+                PaperCard preferred = this.getCard(preferredRequest);
+                if (preferred != null && preferred.getRules().equals(cr))
+                    best = preferred;
+            }
+            uniqueCardsByRules.put(cr, best);
         }
         if (!cr.hasFunctionalVariants() || cr.getSupportedFunctionalVariants() == null) {
             return;
@@ -630,7 +690,7 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
                     if (upcomingSet != null && cr.getPath() != null && cr.getPath().contains("upcoming/")) {
                         addCard(new PaperCard(cr, upcomingSet.getCode(), CardRarity.Unknown));
                         reIndex(cr);
-                    } else if (enableUnknownCards && !this.filtered.contains(cr.getName())) {
+                    } else if (enableUnknownCards) {
                         System.err.println("The card " + cr.getName() + " was not assigned to any set. Adding it to UNKNOWN set... to fix see res/editions/ folder. ");
                         addCard(new PaperCard(cr, CardEdition.UNKNOWN_CODE, CardRarity.Special));
                         reIndex(cr);
@@ -645,10 +705,6 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
     }
 
     public void addCard(PaperCard paperCard) {
-        if (filtered.contains(paperCard.getName())) {
-            return;
-        }
-
         String mainName = paperCard.getName();
         allCardsByName.put(mainName, paperCard);
 
@@ -683,22 +739,156 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
             PaperCard pc = getBestUniquePrint(allCardsByName.get(flavorName));
             uniqueCardsByFlavorName.put(flavorName, pc);
         }
+        restorePreferredArts();
     }
 
-    private PaperCard getBestUniquePrint(final Collection<PaperCard> cards) {
-        return cards.stream()
-                .filter(pc -> !pc.getRarity().equals(CardRarity.Special))
-                .min(Comparator.comparing((PaperCard pc) -> isPreferredLanguagePrint(pc) ? 0 : 1)
-                        .thenComparing((PaperCard pc) -> editions.get(pc.getEdition()), defaultCardArtPreference)
-                        .thenComparing(PaperCard::getCollectorNumber))
-                .orElseGet(() -> cards.iterator().next());
+    /**
+     * Re-apply the per-card preferred art (chosen by the user) on top of the unique prints index,
+     * so that it always wins over the default Card Art Preference after the index is rebuilt.
+     */
+    private void restorePreferredArts() {
+        for (String preferredRequest : new ArrayList<>(artPrefs.values())) {
+            if (preferredRequest == null)
+                continue;
+            PaperCard pc = this.getCard(preferredRequest);
+            if (pc != null && allCardsByRules.containsKey(pc.getRules()))
+                uniqueCardsByRules.put(pc.getRules(), pc);
+        }
     }
 
-    private boolean isPreferredLanguagePrint(PaperCard pc) {
+    /**
+     * Card art chosen by preference should have the traditional frame. If the given print is a special version
+     * (borderless, extended art, showcase, etched, promo...) and the same card also has a print in the main
+     * "cards" section of the same edition, that print is returned instead. When there are several traditional
+     * arts (e.g. basic lands) the one at the same position as the art index is used, so the variety is kept.
+     */
+    public PaperCard getTraditionalFramePrint(PaperCard pc) {
+        if (pc == null || isTraditionalFramePrint(pc))
+            return pc;
+        List<PaperCard> traditional = getTraditionalFramePrints(pc);
+        if (traditional.isEmpty())
+            return pc;  // the card has no traditional print in this edition
+        if (hasPrintExclusion() && !isPrintExcluded(pc) && traditional.stream().allMatch(this::isPrintExcluded))
+            return pc;  // the frame never wins over the player's exclusion
+        PaperCard result = traditional.get((Math.max(pc.getArtIndex(), 1) - 1) % traditional.size());
+        return pc.isFoil() ? result.getFoiled() : result;
+    }
+
+    /**
+     * All the traditional frame prints of the same card (and functional variant) in the edition of the given
+     * print, ordered by art index. It is empty when the card has no print in the main "cards" section of
+     * its edition, for example when the whole edition is made of special prints.
+     */
+    public List<PaperCard> getTraditionalFramePrints(PaperCard pc) {
+        if (pc == null)
+            return Collections.emptyList();
+        CardEdition ed = editions.get(pc.getEdition());
+        if (ed == null)
+            return Collections.emptyList();
+        List<PaperCard> traditional = new ArrayList<>();
+        for (PaperCard other : allCardsByRules.get(pc.getRules())) {
+            if (other.getEdition().equals(pc.getEdition()) && ed.isTraditionalFrame(other.getCollectorNumber())
+                    && Objects.equals(other.getFunctionalVariant(), pc.getFunctionalVariant()))
+                traditional.add(other);
+        }
+        if (canExcludePrints(traditional))
+            traditional.removeIf(this::isPrintExcluded);
+        if (!pc.getRules().getType().isBasicLand()) {
+            /* Some products (Universes Beyond, Secret Lair, Commander decks...) list the special versions of a card
+               in the main section too, with much higher collector numbers (e.g. 79 / 171 / 265). The standard
+               print is the lowest one. Letter variants of the same number (38a, 38b...) are different arts of the
+               same frame and are kept, and so are all the arts of basic lands. */
+            int lowest = Integer.MAX_VALUE;
+            for (PaperCard other : traditional)
+                lowest = Math.min(lowest, collectorNumberBase(other.getCollectorNumber()));
+            final int standardNumber = lowest;
+            traditional.removeIf(other -> {
+                int number = collectorNumberBase(other.getCollectorNumber());
+                return number != Integer.MAX_VALUE && number != standardNumber;
+            });
+        }
+        traditional.sort(Comparator.comparingInt(PaperCard::getArtIndex));
+        return traditional;
+    }
+
+    /* The number at the start of a collector number ("38b" -> 38), or MAX_VALUE if it does not start with digits. */
+    private static int collectorNumberBase(String collectorNumber) {
+        if (collectorNumber == null)
+            return Integer.MAX_VALUE;
+        int end = 0;
+        while (end < collectorNumber.length() && end < 9 && Character.isDigit(collectorNumber.charAt(end)))
+            end++;
+        return end == 0 ? Integer.MAX_VALUE : Integer.parseInt(collectorNumber.substring(0, end));
+    }
+
+    public boolean isTraditionalFramePrint(PaperCard pc) {
+        CardEdition ed = editions.get(pc.getEdition());
+        if (ed == null || !ed.isTraditionalFrame(pc.getCollectorNumber()))
+            return false;
+        if (pc.getRules().getType().isBasicLand())
+            return true;
+        for (PaperCard traditional : getTraditionalFramePrints(pc))
+            if (traditional.getCollectorNumber().equalsIgnoreCase(pc.getCollectorNumber()))
+                return true;
+        return false;
+    }
+
+    // A Black Border preference is a hard requirement: a translated white-bordered print must not
+    // beat a black-bordered one. The preferred language only decides among equally acceptable borders.
+    private PaperCard getBestUniquePrint(final Collection<PaperCard> prints) {
+        final Collection<PaperCard> cards = canExcludePrints(prints)
+                ? prints.stream().filter(pc -> !isPrintExcluded(pc)).collect(Collectors.toList())
+                : prints;
+        PaperCard best = null;
+        CardEdition bestEdition = null;
+        int bestBorder = 0;
+        int bestLanguage = 0;
+        int bestFrame = -1;
+        for (PaperCard pc : cards) {
+            if (pc.getRarity().equals(CardRarity.Special))
+                continue;
+            CardEdition edition = editions.get(pc.getEdition());
+            int border = isBorderMismatch(edition) ? 1 : 0;
+            int language = isPreferredLanguagePrint(pc, edition) ? 0 : 1;
+            int frame = -1;
+            if (best != null) {
+                // A full tie keeps the earlier print
+                int c = Integer.compare(bestBorder, border);
+                if (c == 0)
+                    c = Integer.compare(bestLanguage, language);
+                if (c == 0)
+                    c = defaultCardArtPreference.compare(bestEdition, edition);
+                if (c == 0) {
+                    // The frame check is costly, so it only runs when the editions tie
+                    if (bestFrame < 0)
+                        bestFrame = isTraditionalFramePrint(best) ? 0 : 1;
+                    frame = isTraditionalFramePrint(pc) ? 0 : 1;
+                    c = Integer.compare(bestFrame, frame);
+                }
+                if (c == 0)
+                    c = best.getCollectorNumber().compareTo(pc.getCollectorNumber());
+                if (c <= 0)
+                    continue;
+            }
+            best = pc;
+            bestEdition = edition;
+            bestBorder = border;
+            bestLanguage = language;
+            bestFrame = frame;
+        }
+        return best != null ? best : cards.iterator().next();
+    }
+
+    private boolean isBorderMismatch(CardEdition edition) {
+        if (defaultCardArtPreference == null || !defaultCardArtPreference.blackBorderOnly)
+            return false;
+        return edition != null && edition.getBorderColor() != CardEdition.BorderColor.BLACK;
+    }
+
+    private boolean isPreferredLanguagePrint(PaperCard pc, CardEdition edition) {
         if (preferredLanguageAvailability == null) {
             return false;
         }
-        CardEdition edition = editions.get(pc.getEdition());
         if (edition == null) {
             return false;
         }
@@ -723,18 +913,57 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
     @Override
     public CardArtPreference getCardArtPreference(){ return this.defaultCardArtPreference; }
     public void setCardArtPreference(boolean latestArt, boolean coreExpansionOnly){
-        if (coreExpansionOnly){
-            this.defaultCardArtPreference = latestArt ? CardArtPreference.LATEST_ART_CORE_EXPANSIONS_REPRINT_ONLY : CardArtPreference.ORIGINAL_ART_CORE_EXPANSIONS_REPRINT_ONLY;
-        } else {
-            this.defaultCardArtPreference = latestArt ? CardArtPreference.LATEST_ART_ALL_EDITIONS : CardArtPreference.ORIGINAL_ART_ALL_EDITIONS;
+        setCardArtPreference(latestArt, coreExpansionOnly, false);
+    }
+    public void setCardArtPreference(boolean latestArt, boolean coreExpansionOnly, boolean blackBorder){
+        CardArtPreference newPreference = CardArtPreference.of(latestArt, coreExpansionOnly, blackBorder);
+        boolean changed = newPreference != this.defaultCardArtPreference;
+        this.defaultCardArtPreference = newPreference;
+        // The unique prints index depends on the preference: rebuild it when changed at runtime.
+        if (changed && initialized) {
+            reIndex();
         }
     }
 
     public void setPreferredLanguageAvailability(BiPredicate<String, String> availability) {
+        if (availability == this.preferredLanguageAvailability) {
+            return;
+        }
         this.preferredLanguageAvailability = availability;
         if (initialized) {
             reIndex();
         }
+    }
+
+    public void setPrintExclusion(BiPredicate<CardEdition, String> exclusion) {
+        if (exclusion == null && printExclusion == null)
+            return;  // keeps the version at 0, so decks loaded with nothing excluded never resolve again
+        this.printExclusion = exclusion;
+        printExclusionVersion++;
+        if (initialized) {
+            reIndex();
+        }
+    }
+
+    /** Changes whenever the print exclusion is replaced, so cached print choices can tell they are stale. */
+    public int getPrintExclusionVersion() {
+        return printExclusionVersion;
+    }
+
+    public boolean hasPrintExclusion() {
+        return printExclusion != null;
+    }
+
+    public boolean isPrintExcluded(PaperCard pc) {
+        if (printExclusion == null)
+            return false;
+        CardEdition edition = editions.get(pc.getEdition());
+        return edition != null && printExclusion.test(edition, pc.getCollectorNumber());
+    }
+
+    /** True when an exclusion is set and at least one of the prints passes it, so the excluded ones can be dropped. */
+    public boolean canExcludePrints(Collection<PaperCard> prints) {
+        return printExclusion != null && prints.stream().anyMatch(pc -> !isPrintExcluded(pc));
     }
 
     /**
@@ -779,7 +1008,7 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
         if (!artPreference.contains("original") && !artPreference.contains("earliest"))
             isLatest = true;  // this must be default
         boolean hasFilter = artPreference.contains("core");
-        this.setCardArtPreference(isLatest, hasFilter);
+        this.setCardArtPreference(isLatest, hasFilter, artPreference.contains("black"));
     }
 
     /*
@@ -982,20 +1211,23 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
 
         // Check no-alt cards first. Exact name matches are prioritized more highly than an alt face or half of a split
         // card. That way "Ancestral Recall" won't return Emeritus of Ideation but "Wild Idea" can return Sanar, Unfinished Genius.
+        // A filter that drops every exact match must not fall through to an alt face of another card.
         cards = getAllCardsNoAlt(cr.cardName, cardQueryFilter);
-        if(cards.isEmpty())
+        if (cards.isEmpty() && getRules(cr.cardName, false) == null)
             cards = getAllCards(cr.cardName, cardQueryFilter);
 
         if (cards.isEmpty())
             return null;
         if (cards.size() == 1)  // if only one candidate, there's not much else we should do
-            return cr.isFoil ? cards.get(0).getFoiled() : cards.get(0);
+            return preferTraditionalFrame(cards.get(0), cr);
 
         if (flavorNameMappings.containsKey(cr.cardName)) {
             Collection<PaperCard> matchingNames = cards.stream().filter(c -> c.getDisplayName().equals(cr.cardName)).collect(Collectors.toSet());
             if(!matchingNames.isEmpty())
                 cards.retainAll(matchingNames);
         }
+        if (canExcludePrints(cards))
+            cards.removeIf(this::isPrintExcluded);
 
         /* 2. Retrieve cards based of [Frame]Set Preference
            ================================================ */
@@ -1034,19 +1266,24 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
             Collections.sort(acceptedEditions);  // CardEdition correctly sort by (release) date
             if (artPref.latestFirst)
                 Collections.reverse(acceptedEditions);  // newest editions first
+            // Black Border: original Core/Expansion releases first, promos and compilations last. The sort is
+            // stable, so editions of the same rank stay in release-date order.
+            if (artPref.blackBorderOnly)
+                acceptedEditions.sort(Comparator.comparingInt(artPref::getEditionRank));
         }
 
-        final Iterator<CardEdition> editionIterator = acceptedEditions.iterator();
-        CardEdition ed = editionIterator.next();
-        PaperCard candidate = candidatesCard.get(ed.getCode());
-        PaperCard firstCandidate = candidate;
-        while (!candidate.hasImage() && editionIterator.hasNext()) {
-            ed = editionIterator.next();
-            candidate = candidatesCard.get(ed.getCode());
-        }
-        candidate = candidate.hasImage() ? candidate : firstCandidate;
-        //If any, we're sure that at least one candidate is always returned despite it having any image
-        return cr.isFoil ? candidate.getFoiled() : candidate;
+        // The Card Art Preference is always enforced: the first accepted edition wins, even when its image
+        // is not on disk yet (images are downloaded on demand). Walking back to an older edition just because
+        // it happens to have a local image made the preference look ignored.
+        PaperCard candidate = candidatesCard.get(acceptedEditions.get(0).getCode());
+        return preferTraditionalFrame(candidate, cr);
+    }
+
+    /* Picks by Card Art Preference give the traditional frame, unless a specific print was requested. */
+    private PaperCard preferTraditionalFrame(PaperCard candidate, CardRequest cr) {
+        boolean specificPrintRequested = cr.collectorNumber != null && !cr.collectorNumber.equals(IPaperCard.NO_COLLECTOR_NUMBER);
+        PaperCard result = specificPrintRequested ? candidate : getTraditionalFramePrint(candidate);
+        return cr.isFoil ? result.getFoiled() : result;
     }
 
     @Override
@@ -1096,32 +1333,98 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
         return bool;
     }
 
+    /** Leaves the named cards out of the card pools and face lists. Basic lands are never hidden. */
+    public void setHiddenCards(Set<String> cardNames) {
+        hiddenCards = cardNames;
+    }
+
+    private static volatile boolean exclusionsSuspended;
+    // a short lift for one piece of content stays on its own thread, and can also force the exclusions back on
+    private static final ThreadLocal<Boolean> exclusionsLiftedHere = new ThreadLocal<>();
+
+    /** Lifts the player's exclusions on every thread until cleared. */
+    public static void setExclusionsSuspended(boolean suspended) {
+        exclusionsSuspended = suspended;
+    }
+
+    /** Whether hidden cards are shown and cards given to the player skip print exclusions. Default art is unaffected. */
+    public static boolean areExclusionsLifted() {
+        Boolean here = exclusionsLiftedHere.get();
+        return here != null ? here : exclusionsSuspended;
+    }
+
+    /** Runs the body with the player's exclusions lifted on this thread. */
+    public static <T> T withExclusionsLifted(Supplier<T> body) {
+        return withLift(true, body);
+    }
+
+    /** Runs the body with the player's exclusions applied on this thread, even inside a lift. */
+    public static <T> T withExclusionsApplied(Supplier<T> body) {
+        return withLift(false, body);
+    }
+
+    private static <T> T withLift(boolean lifted, Supplier<T> body) {
+        Boolean previous = exclusionsLiftedHere.get();
+        exclusionsLiftedHere.set(lifted);
+        try {
+            return body.get();
+        } finally {
+            exclusionsLiftedHere.set(previous);
+        }
+    }
+
+    /** Whether the player's exclusions hide the card or skip its print, even where content lifts them. */
+    public boolean isExcludedByPlayer(PaperCard card) {
+        return card != null && (isHiddenByName(card.getRules()) || isPrintExcluded(card));
+    }
+
+    public boolean isHidden(PaperCard card) {
+        return card != null && isHidden(card.getRules());
+    }
+
+    private boolean isHidden(CardRules rules) {
+        return rules != null && !areExclusionsLifted() && isHiddenByName(rules);
+    }
+
+    private boolean isHiddenByName(CardRules rules) {
+        return hiddenCards.contains(rules.getName()) && !rules.getType().isBasicLand();
+    }
+
     @Override
     public Collection<PaperCard> getAllCards() {
-        return Collections.unmodifiableCollection(allCardsByRules.values());
+        if (hiddenCards.isEmpty())
+            return Collections.unmodifiableCollection(allCardsByRules.values());
+        return Collections.unmodifiableList(streamAllCards().collect(Collectors.toList()));
     }
 
     // returns a list of all cards from their respective latest (or preferred) editions
     @Override
     public Collection<PaperCard> getUniqueCards() {
-        return uniqueCardsByRules.values();
+        if (hiddenCards.isEmpty())
+            return uniqueCardsByRules.values();
+        return Collections.unmodifiableList(streamUniqueCards().collect(Collectors.toList()));
     }
     @Override
     public Collection<ICardFace> getAllFaces() {
-        return facesByName.values();
+        if (hiddenCards.isEmpty())
+            return facesByName.values();
+        return Collections.unmodifiableList(streamAllFaces().collect(Collectors.toList()));
     }
 
     @Override
     public Stream<PaperCard> streamAllCards() {
-        return allCardsByRules.values().stream();
+        Stream<PaperCard> cards = allCardsByRules.values().stream();
+        return hiddenCards.isEmpty() ? cards : cards.filter(card -> !isHidden(card));
     }
     @Override
     public Stream<PaperCard> streamUniqueCards() {
-        return uniqueCardsByRules.values().stream();
+        Stream<PaperCard> cards = uniqueCardsByRules.values().stream();
+        return hiddenCards.isEmpty() ? cards : cards.filter(card -> !isHidden(card));
     }
     @Override
     public Stream<ICardFace> streamAllFaces() {
-        return facesByName.values().stream();
+        Stream<ICardFace> faces = facesByName.values().stream();
+        return hiddenCards.isEmpty() ? faces : faces.filter(face -> !isHidden(getLoadedRules(face.getName(), true)));
     }
 
     public static final Predicate<PaperCard> EDITION_NON_PROMO = paperCard -> {
@@ -1235,6 +1538,9 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
                 // Just in case the card is listed in the edition file but Forge doesn't support it
                 continue;
             }
+            if (isHidden(card)) {
+                continue;
+            }
 
             cards.add(card);
         }
@@ -1280,19 +1586,17 @@ public final class CardDb implements ICardDatabase, IDeckGenPool {
 
     @Override
     public Predicate<? super PaperCard> wasPrintedInSets(Collection<String> setCodes) {
-        Set<String> sets = new HashSet<>(setCodes);
         return paperCard -> getAllCards(paperCard).stream()
                 .map(PaperCard::getEdition).anyMatch(editionCode ->
-                    sets.contains(editionCode) &&
+                    setCodes.contains(editionCode) &&
                         StaticData.instance().getCardEdition(editionCode).isCardObtainable(paperCard.getName())
                 );
     }
 
     // This Predicate validates if a card is legal in a given format (identified by the list of allowed sets)
     @Override
-    public Predicate<? super PaperCard> isLegal(Collection<String> allowedSetCodes){
-        Set<String> sets = new HashSet<>(allowedSetCodes);
-        return paperCard -> paperCard != null && sets.contains(paperCard.getEdition());
+    public Predicate<? super PaperCard> isLegal(Collection<String> allowedSetCodes) {
+        return paperCard -> paperCard != null && allowedSetCodes.contains(paperCard.getEdition());
     }
 
     // This Predicate validates if a card was printed at [rarity], on any of its printings

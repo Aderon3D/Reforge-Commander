@@ -8,7 +8,11 @@ import com.google.common.collect.MultimapBuilder;
 import com.google.common.eventbus.Subscribe;
 import forge.LobbyPlayer;
 import forge.StaticData;
+import forge.card.CardDb;
+import forge.deck.Deck;
+import forge.item.PaperCard;
 import forge.ai.AiProfileUtil;
+import forge.ai.LobbyPlayerAi;
 import forge.game.*;
 import forge.game.event.GameEvent;
 import forge.game.event.GameEventSubgameEnd;
@@ -19,7 +23,9 @@ import forge.game.player.Player;
 import forge.game.player.PlayerView;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.net.NetworkGameEventListener;
+import forge.gamemodes.net.ProtocolGuiGame;
 import forge.gamemodes.net.server.HostingServer;
+import forge.gamemodes.replay.ReplaySession;
 import forge.gamemodes.quest.QuestController;
 import forge.gui.FThreads;
 import forge.gui.GuiBase;
@@ -37,12 +43,14 @@ import forge.haptic.HapticEngine;
 import forge.sound.MusicPlaylist;
 import forge.sound.SoundSystem;
 import forge.trackable.TrackableCollection;
+import forge.util.Localizer;
 import forge.util.TextUtil;
 import forge.util.collect.FCollectionView;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.*;
 import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
 public class HostedMatch {
     private Match match;
@@ -70,7 +78,7 @@ public class HostedMatch {
     public void setEndGameHook(Runnable hook) { endGameHook = hook; }
     public void setOnMatchOver(Runnable callback) { onMatchOver = callback; }
 
-    private static GameRules getDefaultRules(final GameType gameType) {
+    public static GameRules getDefaultRules(final GameType gameType) {
         final GameRules gameRules = new GameRules(gameType);
         gameRules.setPlayForAnte(FModel.getPreferences().getPrefBoolean(FPref.UI_ANTE));
         gameRules.setMatchAnteRarity(FModel.getPreferences().getPrefBoolean(FPref.UI_ANTE_MATCH_RARITY));
@@ -122,12 +130,14 @@ public class HostedMatch {
         }
 
         final List<RegisteredPlayer> sortedPlayers = Lists.newArrayList(players);
-        sortedPlayers.sort((p1, p2) -> {
-
-            final int v1 = p1.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
-            final int v2 = p2.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
-            return Integer.compare(v1, v2);
-        });
+        // teammates must keep their adjacent seats (CR 805.1)
+        if (!gameRules.hasSharedTeamTurns()) {
+            sortedPlayers.sort((p1, p2) -> {
+                final int v1 = p1.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
+                final int v2 = p2.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
+                return Integer.compare(v1, v2);
+            });
+        }
 
         if (sortedPlayers.size() == 2) {
             title = TextUtil.concatNoSpace(sortedPlayers.get(0).getPlayer().getName(), " vs ", sortedPlayers.get(1).getPlayer().getName());
@@ -140,6 +150,36 @@ public class HostedMatch {
         this.match.subscribeToEvents(visitor);
         this.matchPlaylist = playlist;
         startGame();
+    }
+
+    // authored opponent decks keep cards the player excluded, so this says so once per deck each session
+    private static final Set<String> warnedDecks = Collections.synchronizedSet(new HashSet<>());
+
+    private void warnOfExcludedCards() {
+        List<IGuiGame> localGuis = guis.values().stream().filter(gui -> !(gui instanceof ProtocolGuiGame)).collect(Collectors.toList());
+        if (localGuis.isEmpty() || CardDb.areExclusionsLifted()) {
+            return;
+        }
+        for (RegisteredPlayer rp : match.getPlayers()) {
+            Deck deck = rp.getDeck();
+            if (!(rp.getPlayer() instanceof LobbyPlayerAi) || deck == null || StringUtils.isBlank(deck.getName())
+                    || warnedDecks.contains(deck.getName())) {
+                continue;
+            }
+            boolean excluded = deck.getAllCardsInASinglePool().toFlatList().stream().anyMatch(HostedMatch::isExcludedCard);
+            if (excluded && warnedDecks.add(deck.getName())) {
+                String message = Localizer.getInstance().getMessage("lblDeckHasExcludedCards", rp.getPlayer().getName());
+                String title = Localizer.getInstance().getMessage("lblExcludedSets");
+                localGuis.forEach(gui -> gui.message(message, title));
+            }
+        }
+    }
+
+    // hidden, or with every print excluded so no allowed art can stand in
+    private static boolean isExcludedCard(PaperCard card) {
+        StaticData db = FModel.getMagicDb();
+        CardDb cards = card.getRules().isVariant() ? db.getVariantCards() : db.getCommonCards();
+        return cards.isHidden(card) || cards.hasPrintExclusion() && !cards.canExcludePrints(cards.getAllCards(card.getRules()));
     }
 
     public void continueMatch() {
@@ -157,8 +197,13 @@ public class HostedMatch {
         SoundSystem.instance.setBackgroundMusic(this.matchPlaylist == null ? MusicPlaylist.MATCH : this.matchPlaylist);
 
         game = match.createGame();
-        game.EXPERIMENTAL_RESTORE_SNAPSHOT = FModel.getPreferences().getPrefBoolean(FPref.MATCH_EXPERIMENTAL_RESTORE);
+        //game.EXPERIMENTAL_RESTORE_SNAPSHOT = FModel.getPreferences().getPrefBoolean(FPref.MATCH_EXPERIMENTAL_RESTORE);
         game.AI_TIMEOUT = FModel.getPreferences().getPrefInt(FPref.MATCH_AI_TIMEOUT);
+        game.AI_FLAT_MONTE_CARLO = FModel.getPreferences().getPrefBoolean(FPref.MATCH_AI_FLAT_MONTE_CARLO);
+        // Desktop auto-detection: phones and tablets keep the light settings, a PC gets the maximum strength.
+        game.AI_FLAT_MONTE_CARLO_MAX = !forge.gui.GuiBase.isMobile();
+        // ...and a phone gets the lite settings (attack search, cheap lookahead) instead of the bare profile values.
+        game.AI_FLAT_MONTE_CARLO_LITE = forge.gui.GuiBase.isMobile();
 
         StaticData.instance().setSourceImageForClone(FModel.getPreferences().getPrefBoolean(FPref.UI_CLONE_MODE_SOURCE));
 
@@ -214,17 +259,17 @@ public class HostedMatch {
             if (p.getController() instanceof PlayerControllerHuman humanController) {
                 final IGuiGame gui = guis.get(p.getRegisteredPlayer());
                 humanController.setGui(gui);
-                gui.setGameView(null); //clear out game view first so we don't copy into old game view
                 gui.setGameView(gameView);
                 gui.setOriginalGameController(p.getView(), humanController);
 
                 if (gui instanceof forge.gamemodes.net.ProtocolGuiGame ngg) {
-                    forge.gui.control.GameEventForwarder forwarder = new forge.gui.control.GameEventForwarder(gui);
+                    GameEventForwarder forwarder = new GameEventForwarder(gui);
                     ngg.setForwarder(forwarder);
                     game.subscribeToEvents(forwarder);
                 } else {
                     game.subscribeToEvents(new FControlGameEventHandler(humanController));
                 }
+                game.subscribeToEvents(humanController.getYieldController());
                 playersPerGui.put(gui, p.getView());
 
                 if (gameControllers != null) {
@@ -242,7 +287,7 @@ public class HostedMatch {
         // before it blocks for input (e.g. host plays a land and retains priority).
         for (PlayerControllerHuman hc : humanControllers) {
             if (hc.getGui() instanceof forge.gamemodes.net.ProtocolGuiGame ngg) {
-                forge.gui.control.GameEventForwarder fwd = ngg.getForwarder();
+                GameEventForwarder fwd = ngg.getForwarder();
                 if (fwd != null) {
                     for (PlayerControllerHuman allHc : humanControllers) {
                         allHc.getInputQueue().addObserver(fwd);
@@ -251,13 +296,14 @@ public class HostedMatch {
             }
         }
 
+        final ReplaySession replay = ReplaySession.begin(game, humanControllers);
+
         for (final Entry<IGuiGame, Collection<PlayerView>> e : playersPerGui.asMap().entrySet()) {
             e.getKey().openView(new TrackableCollection<>(e.getValue()));
         }
 
         if (humanCount == 0) { //watch game but do not participate
             final IGuiGame gui = GuiBase.getInterface().getNewGuiGame();
-            gui.setGameView(null); //clear the view so when the game restarts again, it updates correctly
             gui.setGameView(gameView);
             registerSpectator(gui, new WatchLocalGame(game, new LobbyPlayerHuman("Spectator"), gui));
         }
@@ -287,10 +333,18 @@ public class HostedMatch {
                 playbackControl.setGame(currentGame);
                 currentGame.subscribeToEvents(playbackControl);
             }
+            warnOfExcludedCards();
             // Actually start the game!
-            match.startGame(currentGame, startGameHook);
+            try {
+                match.startGame(currentGame, startGameHook);
+            } catch (final RuntimeException | Error ex) {
+                if (replay != null) {
+                    replay.abort();
+                }
+                throw ex;
+            }
             // this function waits?
-            if (endGameHook != null){
+            if (endGameHook != null) {
                 endGameHook.run();
             }
 
@@ -298,11 +352,15 @@ public class HostedMatch {
             // GameEventGameOutcome and GameEventGameFinished before we proceed.
             for (PlayerControllerHuman hc : humanControllers) {
                 if (hc.getGui() instanceof forge.gamemodes.net.ProtocolGuiGame ngg) {
-                    forge.gui.control.GameEventForwarder fwd = ngg.getForwarder();
+                    GameEventForwarder fwd = ngg.getForwarder();
                     if (fwd != null) {
                         fwd.flush();
                     }
                 }
+            }
+
+            if (replay != null) {
+                replay.finish();
             }
 
             // After game is over...
@@ -360,6 +418,33 @@ public class HostedMatch {
         return game == null ? null : game.getView();
     }
 
+    // Recomputes the "X vs Y" match title from the players' current in-game names
+    // and re-pushes it to any open guis. Needed after a puzzle renames a player
+    // (e.g. via AIName) since the title is normally captured once at match start,
+    // before the puzzle's GameState has been applied.
+    public void refreshTitle() {
+        if (game == null || match == null) {
+            return;
+        }
+        final FCollectionView<Player> players = game.getPlayers();
+        if (players.size() != 2) {
+            return;
+        }
+        match.setTitle(TextUtil.concatNoSpace(players.get(0).getName(), " vs ", players.get(1).getName()));
+
+        final GameView gameView = getGameView();
+        if (gameView == null) {
+            return;
+        }
+        gameView.updateTitle();
+
+        FThreads.invokeInEdtNowOrLater(() -> {
+            for (final IGuiGame gui : guis.values()) {
+                gui.setGameView(gameView);
+            }
+        });
+    }
+
     public void endCurrentGame() {
         if (game == null) { return; }
         boolean isMatchOver = game.getView().isMatchOver();
@@ -368,7 +453,7 @@ public class HostedMatch {
 
         for (final PlayerControllerHuman humanController : humanControllers) {
             if (humanController.getGui() instanceof forge.gamemodes.net.ProtocolGuiGame ngg) {
-                forge.gui.control.GameEventForwarder fwd = ngg.getForwarder();
+                GameEventForwarder fwd = ngg.getForwarder();
                 if (fwd != null) {
                     for (PlayerControllerHuman allHc : humanControllers) {
                         allHc.getInputQueue().deleteObserver(fwd);
@@ -456,13 +541,12 @@ public class HostedMatch {
                     if (p.getController() instanceof PlayerControllerHuman humanController) {
                         final IGuiGame gui = guis.get(p.getRegisteredPlayer());
                         humanController.setGui(gui);
-                        gui.setGameView(null);
                         gui.setGameView(gameView);
                         gui.setOriginalGameController(p.getView(), humanController);
                         gui.openView(new TrackableCollection<>(p.getView()));
-                        gui.setGameView(null);
                         gui.setGameView(gameView);
                         event.subgame().subscribeToEvents(new FControlGameEventHandler(humanController));
+                        event.subgame().subscribeToEvents(humanController.getYieldController());
                         gui.message(event.message());
                     }
                 }
@@ -487,11 +571,9 @@ public class HostedMatch {
                 for (final Player p : event.maingame().getPlayers()) {
                     if (p.getController() instanceof PlayerControllerHuman humanController) {
                         final IGuiGame gui = guis.get(p.getRegisteredPlayer());
-                        gui.setGameView(null);
                         gui.setGameView(gameView);
                         gui.setOriginalGameController(p.getView(), humanController);
                         gui.openView(new TrackableCollection<>(p.getView()));
-                        gui.setGameView(null);
                         gui.setGameView(gameView);
                         gui.handleGameEvent(new GameEventTurnPhase(
                                 gameView.getPlayerTurn(), gameView.getPhase(), ""));

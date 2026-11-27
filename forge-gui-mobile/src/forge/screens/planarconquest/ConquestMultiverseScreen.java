@@ -1,6 +1,8 @@
 package forge.screens.planarconquest;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -60,6 +62,7 @@ public class ConquestMultiverseScreen extends FScreen {
     private static final FSkinFont PLANE_NAME_FONT = FSkinFont.get(16);
     private static final FSkinFont EVENT_NAME_FONT = FSkinFont.get(14);
     private static final FSkinFont AVATAR_NAME_FONT = FSkinFont.get(14);
+    private static final Set<String> excludedSetsNoticeShown = new HashSet<>();
     private static final float BATTLE_BAR_HEIGHT = Utils.AVG_FINGER_HEIGHT * 2;
     private static final float PADDING = FList.PADDING;
     private static final float LOCATION_BAR_HEIGHT = CardRenderer.getCardListItemHeight(false);
@@ -69,6 +72,7 @@ public class ConquestMultiverseScreen extends FScreen {
     private final BattleBar battleBar;
     private ConquestData model;
     private ConquestBattle activeBattle;
+    private ConquestReward regionCommander;
 
     public ConquestMultiverseScreen() {
         super("", ConquestMenu.getMenu());
@@ -96,6 +100,7 @@ public class ConquestMultiverseScreen extends FScreen {
                     if (record.getWins(activeBattle.getTier()) == 1 && record.getHighestConqueredTier() == activeBattle.getTier()) {
                         //if first time conquering event at the selected tier, show animation of new badge being positioned on location
                         model.rewardPlaneswalkEmblems(FModel.getConquestPreferences().getPrefInt(CQPref.PLANESWALK_CONQUER_EMBLEMS));
+                        regionCommander = FModel.getConquest().awardRegionCommander(loc);
                         model.saveData();
                         planeGrid.animateBadgeIntoPosition(loc, activeBattle.getTier());
                     }
@@ -125,6 +130,21 @@ public class ConquestMultiverseScreen extends FScreen {
         planeGrid.scrollPlaneswalkerIntoView();
 
         battleBar.update();
+
+        ConquestPlane plane = model.getCurrentPlane();
+        if (!excludedSetsNoticeShown.contains(plane.getName()) && plane.hasExcludedCards() && excludedSetsNoticeShown.add(plane.getName())) {
+            String notice = plane.ignoresExcludedSets() ? "lblPlaneIgnoresExcludedSets" : "lblPlaneRewardsChangedByExclusions";
+            FOptionPane.showMessageDialog(Forge.getLocalizer().getMessage(notice), Forge.getLocalizer().getMessage("lblExcludedSets"));
+        }
+    }
+
+    private void showRegionCommander() {
+        if (regionCommander == null) {
+            spinChaosWheel();
+            return;
+        }
+        String title = Forge.getLocalizer().getMessage("lblConqueredNReceivedCommander", model.getCurrentLocation().getRegion().getName());
+        ConquestRewardDialog.show(title, List.of(regionCommander), this::spinChaosWheel);
     }
 
     private void spinChaosWheel() {
@@ -591,7 +611,7 @@ public class ConquestMultiverseScreen extends FScreen {
             protected void onEnd(boolean endingAll) {
                 activeBadgeAnimation = null;
                 if (!endingAll) {
-                    spinChaosWheel(); //spin Chaos Wheel after badge positioned
+                    showRegionCommander();
                 }
             }
         }

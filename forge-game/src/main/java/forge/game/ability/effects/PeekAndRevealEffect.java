@@ -63,10 +63,10 @@ public class PeekAndRevealEffect extends SpellAbilityEffect {
 
         for (Player zoneToPeek : srcZonePlayers) {
             final PlayerZone playerZone = zoneToPeek.getZone(srcZone);
-            numPeek = Math.min(numPeek, playerZone.size());
+            final int playerPeek = Math.min(numPeek, playerZone.size());
 
             CardCollection peekCards = new CardCollection();
-            for (int i = 0; i < numPeek; i++) {
+            for (int i = 0; i < playerPeek; i++) {
                 peekCards.add(playerZone.get(i));
             }
 
@@ -81,8 +81,11 @@ public class PeekAndRevealEffect extends SpellAbilityEffect {
                                 Localizer.getInstance().getMessage("lblLookingCardFrom"));
             }
 
-            if (doReveal && sa.hasParam("RevealOptional"))
-                doReveal = peekingPlayer.getController().confirmAction(sa, null, Localizer.getInstance().getMessage("lblRevealCardToOtherPlayers"), params);
+            if (doReveal && sa.hasParam("RevealOptional")) {
+                final Card cardToShow = revealableCards.size() == 1 ? revealableCards.get(0) : null;
+                doReveal = peekingPlayer.getController().confirmAction(sa, null,
+                        Localizer.getInstance().getMessage("lblRevealCardToOtherPlayers"), cardToShow, params);
+            }
 
             if (doReveal) {
                 peekingPlayer.getGame().getAction().reveal(revealableCards, srcZone, zoneToPeek, !noPeek,

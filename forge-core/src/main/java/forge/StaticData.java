@@ -2,9 +2,11 @@ package forge;
 
 import forge.card.CardDb;
 import forge.card.CardEdition;
+import forge.card.CardRarity;
 import forge.card.CardRules;
 import forge.card.PrintSheet;
 import forge.item.*;
+import forge.item.generation.BoosterGenerator;
 import forge.token.TokenDb;
 import forge.util.FileUtil;
 import forge.util.ImageUtil;
@@ -37,8 +39,6 @@ public class StaticData {
     private final CardDb variantCards;
     private final TokenDb allTokens;
     private final CardEdition.Collection editions;
-    private final Set<String> funnyCards = new HashSet<>();
-    private final Set<String> filtered = new HashSet<>();
     private final Map<String, CardRules> regularRules = new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
     private final Map<String, CardRules> variantRules = new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
     private final Set<String> placeholderFacesInProgress = new HashSet<>();
@@ -60,7 +60,6 @@ public class StaticData {
 
     private boolean allowCustomCardsInDecksConformance;
     private boolean enableSmartCardArtSelection;
-    private boolean loadNonLegalCards;
     private final boolean enableUnknownCards;
 
     private boolean sourceImageForClone;
@@ -71,53 +70,38 @@ public class StaticData {
     private IStorage<SealedTemplate> tournaments;
     private IStorage<FatPack.Template> fatPacks;
     private IStorage<BoosterBox.Template> boosterBoxes;
-    private IStorage<PrintSheet> printSheets;
+    private IStorage<PrintSheet> printSheets, printSheetsWithHidden;
     private final Map<String, List<String>> setLookup = new HashMap<>();
 
     private static StaticData lastInstance = null;
 
-    public StaticData(CardStorageReader cardReader, CardStorageReader customCardReader, String editionFolder, String customEditionsFolder, String blockDataFolder, String cardArtPreference, boolean enableUnknownCards, boolean loadNonLegalCards) {
-        this(cardReader, null, customCardReader, null, editionFolder, customEditionsFolder, blockDataFolder, "", cardArtPreference, enableUnknownCards, loadNonLegalCards, false, false, null);
+    public StaticData(CardStorageReader cardReader, CardStorageReader customCardReader, String editionFolder, String customEditionsFolder, String blockDataFolder, String cardArtPreference, boolean enableUnknownCards) {
+        this(cardReader, null, customCardReader, null, editionFolder, customEditionsFolder, blockDataFolder, "", cardArtPreference, enableUnknownCards, false, false, null, null);
     }
-    public StaticData(CardStorageReader cardReader, CardStorageReader tokenReader, CardStorageReader customCardReader, CardStorageReader customTokenReader, String editionFolder, String customEditionsFolder, String blockDataFolder, String setLookupFolder, String cardArtPreference, boolean enableUnknownCards, boolean loadNonLegalCards, boolean allowCustomCardsInDecksConformance, boolean enableSmartCardArtSelection) {
-        this(cardReader, tokenReader, customCardReader, customTokenReader, editionFolder, customEditionsFolder, blockDataFolder, setLookupFolder, cardArtPreference, enableUnknownCards, loadNonLegalCards, allowCustomCardsInDecksConformance, enableSmartCardArtSelection, null);
+    public StaticData(CardStorageReader cardReader, CardStorageReader tokenReader, CardStorageReader customCardReader, CardStorageReader customTokenReader, String editionFolder, String customEditionsFolder, String blockDataFolder, String setLookupFolder, String cardArtPreference, boolean enableUnknownCards, boolean allowCustomCardsInDecksConformance, boolean enableSmartCardArtSelection) {
+        this(cardReader, tokenReader, customCardReader, customTokenReader, editionFolder, customEditionsFolder, blockDataFolder, setLookupFolder, cardArtPreference, enableUnknownCards, allowCustomCardsInDecksConformance, enableSmartCardArtSelection, null, null);
     }
-    public StaticData(CardStorageReader cardReader, CardStorageReader tokenReader, CardStorageReader customCardReader, CardStorageReader customTokenReader, String editionFolder, String customEditionsFolder, String blockDataFolder, String setLookupFolder, String cardArtPreference, boolean enableUnknownCards, boolean loadNonLegalCards, boolean allowCustomCardsInDecksConformance, boolean enableSmartCardArtSelection, BiPredicate<String, String> preferredLanguageAvailability) {
+    public StaticData(CardStorageReader cardReader, CardStorageReader tokenReader, CardStorageReader customCardReader, CardStorageReader customTokenReader, String editionFolder, String customEditionsFolder, String blockDataFolder, String setLookupFolder, String cardArtPreference, boolean enableUnknownCards, boolean allowCustomCardsInDecksConformance, boolean enableSmartCardArtSelection, BiPredicate<String, String> preferredLanguageAvailability, BiPredicate<CardEdition, String> printExclusion) {
         this.cardReader = cardReader;
         this.customCardReader = customCardReader;
         this.tokenReader = tokenReader;
         this.editions = new CardEdition.Collection(new CardEdition.Reader(new File(editionFolder)));
+        editions.loadPrintTags(new File(blockDataFolder, "printtags.txt"));
         this.blockDataFolder = blockDataFolder;
         this.allowCustomCardsInDecksConformance = allowCustomCardsInDecksConformance;
         this.enableSmartCardArtSelection = enableSmartCardArtSelection;
-        this.loadNonLegalCards = loadNonLegalCards;
         this.enableUnknownCards = enableUnknownCards;
         lastInstance = this;
 
         editions.append(new CardEdition.Collection(new CardEdition.Reader(new File(customEditionsFolder), true)));
+        // a player's own tags sit beside their custom editions, so they survive updates and can tag those editions
+        editions.loadPrintTags(new File(new File(customEditionsFolder).getParentFile(), "printtags.txt"));
 
         {
-            if (!loadNonLegalCards) {
-                for (CardEdition e : editions) {
-                    if (e.getType() == CardEdition.Type.FUNNY || e.getBorderColor() == CardEdition.BorderColor.SILVER) {
-                        List<CardEdition.EditionEntry> eternalCards = e.getFunnyEternalCards();
-
-                        for (CardEdition.EditionEntry cis : e.getAllCardsInSet()) {
-                            if (eternalCards.contains(cis))
-                                continue;
-                            funnyCards.add(cis.name());
-                        }
-                    }
-                }
-            }
-
             for (CardRules card : cardReader.loadCards()) {
                 if (null == card) continue;
 
                 final String cardName = card.getPreInitName();
-
-                if (!loadNonLegalCards && funnyCards.contains(cardName) && !card.getType().isBasicLand())
-                    filtered.add(cardName);
 
                 if (card.isVariant()) {
                     variantRules.put(cardName, card);
@@ -127,13 +111,15 @@ public class StaticData {
             }
             loadCustomCards();
 
-            commonCards = new CardDb(regularRules, editions, filtered);
-            variantCards = new CardDb(variantRules, editions, filtered);
+            commonCards = new CardDb(regularRules, editions);
+            variantCards = new CardDb(variantRules, editions);
 
             commonCards.setCardArtPreference(cardArtPreference);
             variantCards.setCardArtPreference(cardArtPreference);
             commonCards.setPreferredLanguageAvailability(preferredLanguageAvailability);
             variantCards.setPreferredLanguageAvailability(preferredLanguageAvailability);
+            commonCards.setPrintExclusion(printExclusion);
+            variantCards.setPrintExclusion(printExclusion);
 
             //must initialize after establish field values for the sake of card image logic
             commonCards.initialize(false, false, enableUnknownCards);
@@ -302,9 +288,6 @@ public class StaticData {
         if (commonCards.getRules(cardName, false) != null || variantCards.getRules(cardName, false) != null) {
             return;
         }
-        if (!loadNonLegalCards && funnyCards.contains(cardName) && !rules.getType().isBasicLand()) {
-            filtered.add(cardName);
-        }
         if (rules.isVariant()) {
             variantCards.loadCard(cardName, null, rules);
         } else {
@@ -338,7 +321,6 @@ public class StaticData {
             commonCards.clearLoadedCards();
             variantCards.clearLoadedCards();
             missingLazyCards.clear();
-            filtered.clear();
             allCardsLoaded = false;
             if (customCardReader != null) {
                 lazyLoadDepth++;
@@ -408,9 +390,6 @@ public class StaticData {
                     placeholderFacesInProgress.remove(faceName);
                 }
             }
-        }
-        if (!loadNonLegalCards && funnyCards.contains(rules.getPreInitName()) && !rules.getType().isBasicLand()) {
-            filtered.add(rules.getPreInitName());
         }
         if (rules.isVariant()) {
             variantCards.loadCard(cardName, setCode, rules);
@@ -566,6 +545,12 @@ public class StaticData {
     }
 
     public IStorage<PrintSheet> getPrintSheets() {
+        // a sheet leaves out the cards hidden when it is built, so content that lifts exclusions keeps its own sheets
+        if (CardDb.areExclusionsLifted()) {
+            if (printSheetsWithHidden == null)
+                printSheetsWithHidden = PrintSheet.initializePrintSheets(new File(blockDataFolder, "printsheets.txt"), getEditions());
+            return printSheetsWithHidden;
+        }
         if (printSheets == null)
             printSheets = PrintSheet.initializePrintSheets(new File(blockDataFolder, "printsheets.txt"), getEditions());
         return printSheets;
@@ -734,6 +719,173 @@ public class StaticData {
                                              boolean cardArtPreferenceHasFilter,
                                              boolean preferCandidatesFromExpansionSets, boolean preferModernFrame,
                                              List<String> allowedSetCodes){
+        return getAlternativeCardPrint(card, setReleaseDate, isCardArtPreferenceLatestArt, cardArtPreferenceHasFilter,
+                                       preferCandidatesFromExpansionSets, preferModernFrame, allowedSetCodes, null);
+    }
+
+    /**
+     * Same as the other <code>getAlternativeCardPrint</code> flavours, but also takes into account the
+     * dominant card border of the deck section.
+     *
+     * @param preferredBorder  If <code>BLACK</code> (or <code>WHITE</code>), the returned print will have that border
+     *                         whenever the card has any print with it (among the allowed ones): the print
+     *                         closest in time to the reference release date is used. If no print with that
+     *                         border exists, the print selected by the usual rules is returned. Null disables this.
+     */
+    public PaperCard getAlternativeCardPrint(PaperCard card, Date setReleaseDate, boolean isCardArtPreferenceLatestArt,
+                                             boolean cardArtPreferenceHasFilter,
+                                             boolean preferCandidatesFromExpansionSets, boolean preferModernFrame,
+                                             List<String> allowedSetCodes, CardEdition.BorderColor preferredBorder){
+        if (card.getRules().getType().isBasicLand()) {
+            /* Basic lands: use the print from the edition closest to the pivot (the pivot edition itself
+               when it has that basic land), so lands match the release / block of the rest of the deck. */
+            PaperCard basic = findClosestBasicLandPrint(card, setReleaseDate, isCardArtPreferenceLatestArt,
+                    cardArtPreferenceHasFilter, allowedSetCodes, preferredBorder);
+            if (basic != null)
+                return basic;
+        }
+        PaperCard altCard = this.getAlternativeCardPrintByDate(card, setReleaseDate, isCardArtPreferenceLatestArt,
+                cardArtPreferenceHasFilter, preferCandidatesFromExpansionSets, preferModernFrame, allowedSetCodes);
+        if (preferredBorder == null)
+            return altCard;
+        PaperCard current = altCard != null ? altCard : card;
+        if (hasBorder(current, preferredBorder))
+            return altCard;
+        PaperCard withBorder = findClosestPrintWithBorder(card, setReleaseDate, preferredBorder,
+                isCardArtPreferenceLatestArt, cardArtPreferenceHasFilter, allowedSetCodes);
+        if (withBorder == null && isStrictBlackBorder(preferredBorder) && allowedSetCodes != null
+                && !allowedSetCodes.isEmpty())
+            // e.g. Modern: the Urza lands exist only as 8ED/9ED (white) inside the format's sets. Deck legality
+            // is checked on the card, not on the print, so a black-bordered print from any set is fine.
+            withBorder = findClosestPrintWithBorder(card, setReleaseDate, preferredBorder,
+                    isCardArtPreferenceLatestArt, cardArtPreferenceHasFilter, null);
+        if (withBorder == null)
+            return altCard;
+        // Only switch to the matching border when that print is not too far from the deck's era;
+        // otherwise a print from a far-away era would look just as out of place as the wrong border.
+        // Exception: with an explicit "Black Border" Card Art Preference the border is a hard requirement,
+        // not a nicety, so the distance limit does not apply.
+        if (isStrictBlackBorder(preferredBorder)
+                || distanceToDate(withBorder, setReleaseDate) <= MAX_BORDER_MATCH_DISTANCE_MS
+                || distanceToDate(withBorder, setReleaseDate) <= distanceToDate(current, setReleaseDate))
+            return withBorder;
+        return altCard;
+    }
+
+    /** True when the user chose a Black Border Card Art Preference and black is the border being enforced. */
+    private boolean isStrictBlackBorder(CardEdition.BorderColor preferredBorder) {
+        return preferredBorder == CardEdition.BorderColor.BLACK && cardArtPreferenceIsBlackBorder();
+    }
+
+    /** Max distance (about 4 years) from the deck's pivot edition for a print chosen only to match the border. */
+    private static final long MAX_BORDER_MATCH_DISTANCE_MS = 4L * 365L * 24L * 3600L * 1000L;
+
+    private long distanceToDate(PaperCard card, Date referenceDate) {
+        CardEdition ed = editions.get(card.getEdition());
+        if (ed == null || ed.getDate() == null)
+            return Long.MAX_VALUE;
+        return Math.abs(ed.getDate().getTime() - referenceDate.getTime());
+    }
+
+    private PaperCard findClosestBasicLandPrint(PaperCard card, Date pivotDate, boolean latestArt, boolean hasFilter,
+                                                List<String> allowedSetCodes, CardEdition.BorderColor preferredBorder) {
+        PaperCard any = findClosestPrintWithBorder(card, pivotDate, null, latestArt, hasFilter, allowedSetCodes);
+        if (preferredBorder == null)
+            return any;
+        PaperCard withBorder = findClosestPrintWithBorder(card, pivotDate, preferredBorder, latestArt, hasFilter,
+                allowedSetCodes);
+        if (withBorder == null && isStrictBlackBorder(preferredBorder) && allowedSetCodes != null
+                && !allowedSetCodes.isEmpty())
+            withBorder = findClosestPrintWithBorder(card, pivotDate, preferredBorder, latestArt, hasFilter, null);
+        if (withBorder != null && (any == null || isStrictBlackBorder(preferredBorder)
+                || distanceToDate(withBorder, pivotDate) <= MAX_BORDER_MATCH_DISTANCE_MS
+                || distanceToDate(withBorder, pivotDate) <= distanceToDate(any, pivotDate)))
+            return withBorder;
+        return any;
+    }
+
+    /** True if the edition of the card has a border that is NOT the preferred one (only White/Black are compared). */
+    public boolean hasBorderMismatch(PaperCard card, CardEdition.BorderColor preferredBorder) {
+        if (preferredBorder == null)
+            return false;
+        CardEdition ed = editions.get(card.getEdition());
+        if (ed == null)
+            return false;
+        CardEdition.BorderColor border = ed.getBorderColor();
+        return (border == CardEdition.BorderColor.BLACK || border == CardEdition.BorderColor.WHITE)
+                && border != preferredBorder;
+    }
+
+    private boolean hasBorder(PaperCard card, CardEdition.BorderColor border) {
+        return !hasBorderMismatch(card, border);
+    }
+
+    private PaperCard findClosestPrintWithBorder(PaperCard card, Date referenceDate, CardEdition.BorderColor border,
+                                                 boolean latestArt, boolean hasFilter, List<String> allowedSetCodes) {
+        CardDb.CardArtPreference artPref = getCardArtPreference(latestArt, hasFilter);
+        Predicate<PaperCard> legal = null;
+        if (allowedSetCodes != null && !allowedSetCodes.isEmpty())
+            legal = (Predicate<PaperCard>) commonCards.isLegal(allowedSetCodes);
+        List<PaperCard> candidates = new ArrayList<>();
+        for (PaperCard pc : commonCards.getAllCardsNoAlt(card.getName())) {
+            if (pc.getRarity() == CardRarity.Special || commonCards.isPrintExcluded(pc))
+                continue;
+            CardEdition ed = editions.get(pc.getEdition());
+            if (ed == null || ed.getDate() == null || (border != null && ed.getBorderColor() != border))
+                continue;
+            if (legal != null && !legal.test(pc))
+                continue;
+            candidates.add(pc);
+        }
+        // honour the Core/Expansion/Reprint filter when possible, otherwise consider any edition
+        List<PaperCard> accepted = new ArrayList<>();
+        for (PaperCard pc : candidates)
+            if (artPref.accept(editions.get(pc.getEdition())))
+                accepted.add(pc);
+        if (!accepted.isEmpty())
+            candidates = accepted;
+        List<PaperCard> usable = new ArrayList<>();
+        for (PaperCard pc : candidates) {
+            if (pc.getArtIndex() != card.getArtIndex() && pc.getArtIndex() > IPaperCard.DEFAULT_ART_INDEX
+                    && card.getArtIndex() > IPaperCard.DEFAULT_ART_INDEX)
+                continue;
+            usable.add(pc);
+        }
+        if (artPref.blackBorderOnly) {
+            // Black Border: the closest print to the pivot is looked for among the best ranked editions only
+            // (Core/Expansion first, promos and compilations only when there is nothing else)
+            int bestRank = Integer.MAX_VALUE;
+            for (PaperCard pc : usable)
+                bestRank = Math.min(bestRank, artPref.getEditionRank(editions.get(pc.getEdition())));
+            final int rank = bestRank;
+            usable.removeIf(pc -> artPref.getEditionRank(editions.get(pc.getEdition())) != rank);
+        }
+        PaperCard best = null;
+        long bestDistance = Long.MAX_VALUE;
+        for (PaperCard pc : usable) {
+            Date d = editions.get(pc.getEdition()).getDate();
+            long distance = Math.abs(d.getTime() - referenceDate.getTime());
+            // ties: prefer the one on the side of the preference (newer for Latest, older for Original)
+            boolean better = distance < bestDistance;
+            if (!better && distance == bestDistance && best != null) {
+                Date bd = editions.get(best.getEdition()).getDate();
+                better = latestArt ? d.after(bd) : d.before(bd);
+            }
+            if (better) {
+                best = pc;
+                bestDistance = distance;
+            }
+        }
+        if (best == null)
+            return null;
+        best = commonCards.getTraditionalFramePrint(best);  // not the borderless / extended art / showcase print
+        return card.isFoil() ? best.getFoiled() : best;
+    }
+
+    private PaperCard getAlternativeCardPrintByDate(PaperCard card, Date setReleaseDate, boolean isCardArtPreferenceLatestArt,
+                                             boolean cardArtPreferenceHasFilter,
+                                             boolean preferCandidatesFromExpansionSets, boolean preferModernFrame,
+                                             List<String> allowedSetCodes){
         PaperCard altCard = this.getAlternativeCardPrint(card, setReleaseDate, isCardArtPreferenceLatestArt,
                                                           cardArtPreferenceHasFilter, allowedSetCodes);
         if (altCard == null)
@@ -742,10 +894,17 @@ public class StaticData {
 
         /* Try to refine selection by getting one candidate with frame matching current
            Card Art Preference (that is NOT the lookup strategy!)*/
+        Date searchReferenceDate = getReferenceDate(setReleaseDate, isCardArtPreferenceLatestArt);
         PaperCard refinedAltCandidate = this.tryToGetCardPrintWithMatchingFrame(altCard, isCardArtPreferenceLatestArt,
                                                                                 cardArtPreferenceHasFilter,
                                                                                 preferModernFrame, allowedSetCodes);
-        if (refinedAltCandidate != null)
+        // Refinements must never move the print away from the pivot on the wrong side of the timeline
+        // (e.g. a far-newer print only because of its frame), otherwise it would not match the deck anymore.
+        // With the Black Border preference a refinement may never trade an original Core/Expansion print for a
+        // Commander, Duel Deck or compilation one just to get another frame.
+        if (refinedAltCandidate != null && isOnPreferredSideOfDate(refinedAltCandidate, searchReferenceDate,
+                                                                    isCardArtPreferenceLatestArt)
+                && !hasWorseEditionRank(refinedAltCandidate, altCard))
             altCard = refinedAltCandidate;
 
         if (cardArtPreferenceHasFilter && preferCandidatesFromExpansionSets){
@@ -754,24 +913,77 @@ public class StaticData {
                Card Frame (if applied) given that we'll be moving either UP or DOWN the timeline of Card Edition */
             refinedAltCandidate = this.tryToGetCardPrintFromExpansionSet(altCard, isCardArtPreferenceLatestArt,
                                                                             preferModernFrame, allowedSetCodes);
-            if (refinedAltCandidate != null)
+            if (refinedAltCandidate != null && isOnPreferredSideOfDate(refinedAltCandidate, searchReferenceDate,
+                                                                        isCardArtPreferenceLatestArt)
+                    && !hasWorseEditionRank(refinedAltCandidate, altCard))
                 altCard = refinedAltCandidate;
         }
         return altCard;
+    }
+
+    /* True if the edition of the candidate ranks lower than the edition of the reference card for the current
+       Card Art Preference (only the Black Border preferences rank editions, see CardArtPreference.getEditionRank) */
+    private boolean hasWorseEditionRank(PaperCard candidate, PaperCard reference) {
+        CardDb.CardArtPreference preference = this.commonCards.getCardArtPreference();
+        return preference.getEditionRank(editions.get(candidate.getEdition()))
+                > preference.getEditionRank(editions.get(reference.getEdition()));
+    }
+
+    /* Latest Art: print must be released on/after the reference date. Original Art: on/before it. */
+    private boolean isOnPreferredSideOfDate(PaperCard card, Date referenceDate, boolean isCardArtPreferenceLatestArt) {
+        CardEdition edition = editions.get(card.getEdition());
+        if (edition == null || edition.getDate() == null)
+            return false;
+        return isCardArtPreferenceLatestArt ? !edition.getDate().before(referenceDate)
+                                            : !edition.getDate().after(referenceDate);
     }
 
     private PaperCard searchAlternativeCardCandidate(PaperCard card, boolean isCardArtPreferenceLatestArt,
                                                      Date searchReferenceDate,
                                                      CardDb.CardArtPreference searchCardArtStrategy,
                                                      List<String> allowedSetCodes) {
+        Predicate<PaperCard> filter = null;
+        if (allowedSetCodes != null && !allowedSetCodes.isEmpty())
+            filter = (Predicate<PaperCard>) this.commonCards.isLegal(allowedSetCodes);
+        if (commonCards.hasPrintExclusion()) {
+            // no fallback here: without an allowed alternative the deck keeps the print it already has
+            Predicate<PaperCard> allowed = pc -> !commonCards.isPrintExcluded(pc);
+            filter = filter == null ? allowed : filter.and(allowed);
+        }
+
+        CardDb.CardArtPreference userPreference = this.commonCards.getCardArtPreference();
+        if (userPreference.blackBorderOnly) {
+            /* Original Art (Black Border): look for a black-bordered print among the original Core/Expansion
+               releases first, then among other regular products, then among promos and compilation sets.
+               Only when no black-bordered print exists in the searched direction the plain search is used,
+               and the caller deals with the border. */
+            for (int maxRank = CardDb.CardArtPreference.RANK_ORIGINAL;
+                 maxRank <= CardDb.CardArtPreference.RANK_COMPILATION; maxRank++) {
+                final int rankLimit = maxRank;
+                Predicate<PaperCard> rankFilter = pc -> {
+                    CardEdition ed = editions.get(pc.getEdition());
+                    return ed != null && ed.getBorderColor() == CardEdition.BorderColor.BLACK
+                            && userPreference.getEditionRank(ed) <= rankLimit;
+                };
+                PaperCard altCard = searchAlternativeCardCandidateWithFilter(card, isCardArtPreferenceLatestArt,
+                        searchReferenceDate, searchCardArtStrategy, filter == null ? rankFilter : filter.and(rankFilter));
+                if (altCard != null)
+                    return altCard;
+            }
+        }
+        return searchAlternativeCardCandidateWithFilter(card, isCardArtPreferenceLatestArt, searchReferenceDate,
+                searchCardArtStrategy, filter);
+    }
+
+    private PaperCard searchAlternativeCardCandidateWithFilter(PaperCard card, boolean isCardArtPreferenceLatestArt,
+                                                                   Date searchReferenceDate,
+                                                                   CardDb.CardArtPreference searchCardArtStrategy,
+                                                                   Predicate<PaperCard> filter) {
         // Note: this won't apply to Custom Nor Variant Cards, so won't bother including it!
         CardDb cardDb = this.commonCards;
         String cardName = card.getName();
         int artIndex = card.getArtIndex();
         PaperCard altCard = null;
-        Predicate<PaperCard> filter = null;
-        if (allowedSetCodes != null && !allowedSetCodes.isEmpty())
-            filter = (Predicate<PaperCard>) cardDb.isLegal(allowedSetCodes);
 
         if (isCardArtPreferenceLatestArt) {  // RELEASED AFTER REFERENCE DATE
             altCard = cardDb.getCardFromEditionsReleasedAfter(cardName, searchCardArtStrategy, artIndex,
@@ -917,10 +1129,13 @@ public class StaticData {
     }
 
     public CardDb.CardArtPreference getCardArtPreference(boolean latestArt, boolean coreExpansionOnly) {
-        if (latestArt) {
-            return coreExpansionOnly ? CardDb.CardArtPreference.LATEST_ART_CORE_EXPANSIONS_REPRINT_ONLY : CardDb.CardArtPreference.LATEST_ART_ALL_EDITIONS;
-        }
-        return coreExpansionOnly ? CardDb.CardArtPreference.ORIGINAL_ART_CORE_EXPANSIONS_REPRINT_ONLY : CardDb.CardArtPreference.ORIGINAL_ART_ALL_EDITIONS;
+        // Callers that only know about Latest/Original (e.g. the deck import dialogs) must not silently
+        // switch the user's Black Border preference off: keep it whenever Original Art stays selected.
+        return CardDb.CardArtPreference.of(latestArt, coreExpansionOnly, !latestArt && cardArtPreferenceIsBlackBorder());
+    }
+
+    public boolean cardArtPreferenceIsBlackBorder() {
+        return this.commonCards.getCardArtPreference().blackBorderOnly;
     }
 
 
@@ -993,7 +1208,6 @@ public class StaticData {
                             }
                             if (cp == null) {
                                 if (isFunny) return;
-                                if (!loadNonLegalCards && CardEdition.Type.FUNNY.equals(e.getType())) return;
                                 EDITION_Q.add(e.getCode() + "_" + e.getName());
                                 CNI_Q.add(e.getCode() + "_" + c + "\n");
                                 return;
@@ -1149,6 +1363,11 @@ public class StaticData {
         return label.toString().trim();
     }
 
+    public void setCardArtPreference(boolean latestArt, boolean coreExpansionOnly, boolean blackBorder) {
+        this.commonCards.setCardArtPreference(latestArt, coreExpansionOnly, blackBorder);
+        this.variantCards.setCardArtPreference(latestArt, coreExpansionOnly, blackBorder);
+    }
+
     public void setCardArtPreference(String artPreference) {
         this.commonCards.setCardArtPreference(artPreference);
         this.variantCards.setCardArtPreference(artPreference);
@@ -1157,6 +1376,35 @@ public class StaticData {
     public void setPreferredLanguageAvailability(BiPredicate<String, String> availability) {
         this.commonCards.setPreferredLanguageAvailability(availability);
         this.variantCards.setPreferredLanguageAvailability(availability);
+    }
+
+    public void setPrintExclusion(BiPredicate<CardEdition, String> exclusion) {
+        this.commonCards.setPrintExclusion(exclusion);
+        this.variantCards.setPrintExclusion(exclusion);
+    }
+
+    /** Hides every card whose prints all match the test from the card pools. A card is still found by name. */
+    public void setHiddenPrints(BiPredicate<CardEdition, String> hidden) {
+        Set<String> cardNames = new HashSet<>();
+        if (hidden != null) {
+            Set<String> keptNames = new HashSet<>();
+            for (CardEdition edition : editions) {
+                for (CardEdition.EditionEntry entry : edition.getAllCardsInSet()) {
+                    (hidden.test(edition, entry.collectorNumber()) ? cardNames : keptNames).add(entry.name());
+                }
+            }
+            // a card with a print outside the test stays, as sets tagged whole also hold ordinary cards
+            cardNames.removeAll(keptNames);
+        }
+        this.commonCards.setHiddenCards(cardNames);
+        this.variantCards.setHiddenCards(cardNames);
+        // print sheets are built once, so they are rebuilt without the hidden cards
+        printSheets = null;
+        BoosterGenerator.clearCachedSheets();
+    }
+
+    public boolean isHidden(PaperCard card) {
+        return commonCards.isHidden(card);
     }
 
     public boolean isEnabledCardArtSmartSelection() {

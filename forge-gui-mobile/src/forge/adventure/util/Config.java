@@ -27,9 +27,11 @@ import forge.util.FileUtil;
 
 import java.io.*;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * Main resource class to access files from the selected adventure
@@ -41,6 +43,10 @@ public class Config {
     private final String commonPrefix;
     private final HashMap<String, FileHandle> Cache = new HashMap<>();
     private ConfigData configData;
+    private String[] planeRestrictedEditions, planeAllowedEditions;
+    private boolean excludedSetsNoticePending, placeIgnoresExcludedSets, resourcesLoaded;
+    private Set<String> excludedEditionCodes = Collections.emptySet();
+    private Set<String> partlyExcludedEditionCodes = Collections.emptySet();
     private final String[] adventures;
     private SettingData settingsData;
     private String Lang = "en-us";
@@ -91,18 +97,6 @@ public class Config {
         }
         if (settingsData.videomode == null || settingsData.videomode.isEmpty())
             settingsData.videomode = "720p";
-        //reward card display fine tune
-        if (settingsData.rewardCardAdj == null || settingsData.rewardCardAdj == 0f)
-            settingsData.rewardCardAdj = 1f;
-        //tooltip fine tune
-        if (settingsData.cardTooltipAdj == null || settingsData.cardTooltipAdj == 0f)
-            settingsData.cardTooltipAdj = 1f;
-        //reward card display fine tune landscape
-        if (settingsData.rewardCardAdjLandscape == null || settingsData.rewardCardAdjLandscape == 0f)
-            settingsData.rewardCardAdjLandscape = 1f;
-        //tooltip fine tune landscape
-        if (settingsData.cardTooltipAdjLandscape == null || settingsData.cardTooltipAdjLandscape == 0f)
-            settingsData.cardTooltipAdjLandscape = 1f;
 
         //prefix = "forge-gui/res/adventure/Shandalar/";
         prefix = getPlanePath(settingsData.plane);
@@ -142,6 +136,102 @@ public class Config {
 
     public ConfigData getConfigData() {
         return configData;
+    }
+
+    /** False where the content's author ignores excluded sets, which keeps every card. */
+    public boolean appliesUserExclusions() {
+        return !CardDb.areExclusionsLifted() && FModel.getMagicDb().getCommonCards().hasPrintExclusion();
+    }
+
+    /** The editions the player excludes as a whole, kept from the last change so card choices need not scan every edition. */
+    public Set<String> getExcludedEditionCodes() {
+        return CardDb.areExclusionsLifted() ? Collections.emptySet() : excludedEditionCodes;
+    }
+
+    /** The editions with only some prints excluded, kept from the last change as the whole ones are. */
+    public Set<String> getPartlyExcludedEditionCodes() {
+        return CardDb.areExclusionsLifted() ? Collections.emptySet() : partlyExcludedEditionCodes;
+    }
+
+    /** Whether a dungeon, town or enemy lifts the player's exclusions here, rather than the whole plane. */
+    public boolean liftsExclusionsLocally() {
+        return CardDb.areExclusionsLifted() && !configData.ignoreExcludedSets;
+    }
+
+    /** Lifts the player's exclusions while the player is in a dungeon or town whose author ignores them. */
+    public void setPlaceIgnoresExcludedSets(boolean ignores) {
+        if (placeIgnoresExcludedSets == ignores || !resourcesLoaded)
+            return;
+        placeIgnoresExcludedSets = ignores;
+        if (configData.ignoreExcludedSets)
+            return;  // the whole plane already lifts them
+        applyUserExclusions();
+        applyTokenEditionFilter();
+    }
+
+    /** Runs the body with the player's exclusions lifted, for an enemy whose author ignores them. */
+    public <T> T withExclusionsLifted(Supplier<T> body) {
+        if (CardDb.areExclusionsLifted())
+            return body.get();
+        // the edition lists hold the player's whole-set exclusions, so the plane's own lists stand in while the body runs
+        String[] restricted = configData.restrictedEditions, allowed = configData.allowedEditions;
+        configData.restrictedEditions = planeRestrictedEditions;
+        configData.allowedEditions = planeAllowedEditions;
+        try {
+            return CardDb.withExclusionsLifted(body);
+        } finally {
+            configData.restrictedEditions = restricted;
+            configData.allowedEditions = allowed;
+        }
+    }
+
+    /** Whether the plane's own edition lists allow the edition, leaving the player's exclusions aside. */
+    public boolean isPlaneEdition(String code) {
+        if (planeAllowedEditions != null && planeAllowedEditions.length > 0)
+            return Arrays.asList(planeAllowedEditions).contains(code);
+        return planeRestrictedEditions == null || !Arrays.asList(planeRestrictedEditions).contains(code);
+    }
+
+    // The player's whole-edition exclusions join the plane's own lists, which every Adventure source already honours
+    private void applyUserExclusions() {
+        if (planeRestrictedEditions == null) {
+            planeRestrictedEditions = configData.restrictedEditions == null ? new String[0] : configData.restrictedEditions;
+            planeAllowedEditions = configData.allowedEditions;
+        }
+        boolean hasWhitelist = planeAllowedEditions != null && planeAllowedEditions.length > 0;
+        Set<String> playerExcluded = FModel.getExcludedEditionCodes();
+        Set<String> playerPartlyExcluded = FModel.getPartlyExcludedEditionCodes();
+        boolean ignore = configData.ignoreExcludedSets || placeIgnoresExcludedSets;
+        CardDb.setExclusionsSuspended(ignore);
+        if (configData.ignoreExcludedSets) {
+            excludedSetsNoticePending = hasWhitelist
+                    ? Arrays.stream(planeAllowedEditions).anyMatch(code -> playerExcluded.contains(code) || playerPartlyExcluded.contains(code))
+                    : !playerExcluded.isEmpty() || !playerPartlyExcluded.isEmpty();
+        }
+        excludedEditionCodes = ignore ? Collections.emptySet() : playerExcluded;
+        partlyExcludedEditionCodes = ignore ? Collections.emptySet() : playerPartlyExcluded;
+        Set<String> excluded = excludedEditionCodes;
+        Set<String> restricted = new LinkedHashSet<>(Arrays.asList(planeRestrictedEditions));
+        restricted.addAll(excluded);
+        configData.restrictedEditions = restricted.toArray(new String[0]);
+        if (hasWhitelist)
+            configData.allowedEditions = Arrays.stream(planeAllowedEditions).filter(code -> !excluded.contains(code)).toArray(String[]::new);
+    }
+
+    /** True once after the player's exclusions would change a plane that ignores them, so the player can be told. */
+    public boolean takeExcludedSetsNotice() {
+        boolean pending = excludedSetsNoticePending;
+        excludedSetsNoticePending = false;
+        return pending;
+    }
+
+    public static void onExclusionChanged() {
+        // outside Adventure the lift must stay off, and loadResources applies the change on return
+        if (currentConfig == null || !currentConfig.resourcesLoaded || !Forge.isMobileAdventureMode)
+            return;
+        currentConfig.applyUserExclusions();
+        currentConfig.applyTokenEditionFilter();
+        RewardData.invalidateCardPool();
     }
 
     // Push the plane's allowed/restricted editions and restricted token pairs into TokenDb.
@@ -202,6 +292,69 @@ public class Config {
         return Lang;
     }
 
+    public boolean isExtraBattleBackgroundsEnabled() {
+        Boolean enabled = settingsData.extraBattleBackgroundsByPlane == null ? null
+                : settingsData.extraBattleBackgroundsByPlane.get(plane);
+        if (enabled != null) {
+            return enabled;
+        }
+        if (settingsData.enableExtraBattleBackgrounds != null) {
+            return settingsData.enableExtraBattleBackgrounds;
+        }
+        return !GuiBase.isMobile() && configData.enableExtraBattleBackgroundsByDefault;
+    }
+
+    public void setExtraBattleBackgroundsEnabled(boolean enabled) {
+        if (settingsData.extraBattleBackgroundsByPlane == null) {
+            settingsData.extraBattleBackgroundsByPlane = new HashMap<>();
+        }
+        settingsData.extraBattleBackgroundsByPlane.put(plane, enabled);
+    }
+
+    public String getCachePrefix() {
+        String safePlane = getPlane().replaceAll("[^A-Za-z0-9._-]", "_");
+        String planeKey = safePlane + "-" + UUID.nameUUIDFromBytes(
+                plane.getBytes(StandardCharsets.UTF_8));
+        String source = getBattleBackgroundSource();
+        String sourceKey = source == null ? "plane-default" : source;
+        return ForgeConstants.CACHE_DIR + "adventure" + ForgeConstants.PATH_SEPARATOR
+                + planeKey + ForgeConstants.PATH_SEPARATOR
+                + UUID.nameUUIDFromBytes(sourceKey.getBytes(StandardCharsets.UTF_8))
+                + ForgeConstants.PATH_SEPARATOR;
+    }
+
+    public String getBattleBackgroundSource() {
+        if (!isUsingCustomBattleBackgroundSource()) {
+            return null;
+        }
+        String source = getCustomBattleBackgroundSource();
+        return source == null ? "" : source;
+    }
+
+    public String getCustomBattleBackgroundSource() {
+        return settingsData.battleBackgroundSources == null ? null
+                : settingsData.battleBackgroundSources.get(plane);
+    }
+
+    public void setBattleBackgroundSource(String source) {
+        if (settingsData.battleBackgroundSources == null) {
+            settingsData.battleBackgroundSources = new HashMap<>();
+        }
+        settingsData.battleBackgroundSources.put(plane, source == null ? "" : source.trim());
+    }
+
+    public boolean isUsingCustomBattleBackgroundSource() {
+        return settingsData.useCustomBattleBackgroundSources != null
+                && Boolean.TRUE.equals(settingsData.useCustomBattleBackgroundSources.get(plane));
+    }
+
+    public void setUseCustomBattleBackgroundSource(boolean useCustomSource) {
+        if (settingsData.useCustomBattleBackgroundSources == null) {
+            settingsData.useCustomBattleBackgroundSources = new HashMap<>();
+        }
+        settingsData.useCustomBattleBackgroundSources.put(plane, useCustomSource);
+    }
+
     public String getFilePath(String path) {
         return prefix + path;
     }
@@ -253,9 +406,10 @@ public class Config {
         System.out.print("Looking for resource " + path + "... ");
         String fullPath = (prefix + path).replace("//", "/");
         String langFile = langFilePath(fullPath, prefix);
+        boolean isUI = path.startsWith("ui/");
 
         for (int iter = 1; iter <= 2; iter++) {
-            if (Files.exists(Paths.get(langFile))) {
+            if (!isUI && Files.exists(Paths.get(langFile))) {
                 System.out.println("Found!");
                 Cache.put(path, new FileHandle(langFile));
                 break;
@@ -615,8 +769,16 @@ public class Config {
     }
 
     public void loadResources() {
+        if (settingsData.excludeAlchemyVariants) {
+            FModel.excludeTag(CardEdition.REBALANCED_TAG);
+            settingsData.excludeAlchemyVariants = false;
+            saveSettings();
+        }
         AdventureOverrides.instance().load(prefix, FModel.getMagicDb().getEditions(), configData);
+        placeIgnoresExcludedSets = false;
+        applyUserExclusions();
         applyTokenEditionFilter();
+        resourcesLoaded = true;
         RewardData.getAllCards();//initialize before loading custom cards
         final CardRules.Reader rulesReader = new CardRules.Reader();
         ImageKeys.ADVENTURE_CARD_PICS_DIR = Config.currentConfig.getCommonFilePath(forge.adventure.util.Paths.CUSTOM_CARDS_PICS);// not the cleanest solution

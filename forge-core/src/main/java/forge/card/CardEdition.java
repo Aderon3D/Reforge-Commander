@@ -18,6 +18,7 @@
 package forge.card;
 
 import com.google.common.collect.*;
+import com.google.common.primitives.Ints;
 
 import forge.StaticData;
 import forge.card.CardDb.CardArtPreference;
@@ -104,6 +105,23 @@ public final class CardEdition implements Comparable<CardEdition> {
         NOT_SUPPORTED, // sets before Urza's Legacy
         OLD_STYLE, // sets between Urza's Legacy and 8th Edition
         MODERN // 8th Edition and newer
+    }
+
+    /** The draft-mode variant for this edition (e.g. Normal limited or Commander draft). */
+    public enum DraftType {
+        Normal,
+        Commander;
+
+        public static DraftType fromString(String value) {
+            if (value == null || value.isEmpty()) {
+                return Normal;
+            }
+            try {
+                return DraftType.valueOf(value);
+            } catch (IllegalArgumentException e) {
+                return Normal;
+            }
+        }
     }
 
     public enum BorderColor {
@@ -275,6 +293,11 @@ public final class CardEdition implements Comparable<CardEdition> {
     private String name;
     private String alias = null;
     private BorderColor borderColor = BorderColor.BLACK;
+    private final Set<String> tags = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+    public static final String REBALANCED_TAG = "Rebalanced";
+    // hides cards from the card pools when excluded, rather than only steering default art
+    public static final String FUNNY_TAG = "Funny";
 
     // SealedProduct
     private String prerelease = null;
@@ -301,6 +324,7 @@ public final class CardEdition implements Comparable<CardEdition> {
 
     // Draft options
     private DraftOptions draftOptions = null;
+    private DraftType draftType = DraftType.Normal;
     private String[] chaosDraftThemes = new String[0];
 
     private final ListMultimap<String, EditionEntry> cardMap;
@@ -395,10 +419,10 @@ public final class CardEdition implements Comparable<CardEdition> {
     public String getSheetReplaceCardFromSheet() { return sheetReplaceCardFromSheet; }
     public String getSheetReplaceCardFromSheet2() { return sheetReplaceCardFromSheet2; }
     public String[] getChaosDraftThemes() { return chaosDraftThemes; }
+    public DraftType getDraftType() { return draftType; }
 
     public List<EditionEntry> getCards() { return cardMap.get(EditionSectionWithCollectorNumbers.CARDS.getName()); }
     public List<EditionEntry> getRebalancedCards() { return cardMap.get(EditionSectionWithCollectorNumbers.REBALANCED.getName()); }
-    public List<EditionEntry> getFunnyEternalCards() { return cardMap.get(EditionSectionWithCollectorNumbers.ETERNAL.getName()); }
     public List<EditionEntry> getObtainableCards() { 
         List<EditionEntry> allCards = new ArrayList<>(getAllCardsInSet());
         List<EditionEntry> conjuredCards = cardMap.get(EditionSectionWithCollectorNumbers.CONJURED.getName());
@@ -468,6 +492,74 @@ public final class CardEdition implements Comparable<CardEdition> {
     }
 
     public boolean isModern() { return getDate().after(parseDate("2003-07-27")); } //8ED and above are modern except some promo cards and others
+
+    // lower case collector numbers of the prints in the main "cards" section, built on first use
+    private volatile Set<String> traditionalCollectorNumbers;
+
+    /**
+     * True if the print with the given collector number has the traditional frame, that is, it is listed in the
+     * main "cards" section of the edition rather than in a special one (borderless, extended art, showcase,
+     * etched, full art, promo, buy a box...).
+     */
+    public boolean isTraditionalFrame(String collectorNumber) {
+        if (collectorNumber == null || collectorNumber.isEmpty())
+            return false;
+        Set<String> numbers = traditionalCollectorNumbers;
+        if (numbers == null) {
+            numbers = new HashSet<>();
+            for (EditionEntry entry : getCards()) {
+                if (entry.collectorNumber() != null)
+                    numbers.add(entry.collectorNumber().toLowerCase(Locale.ROOT));
+            }
+            traditionalCollectorNumbers = numbers;
+        }
+        return numbers.contains(collectorNumber.toLowerCase(Locale.ROOT));
+    }
+
+    // tag -> lower case collector numbers of the entries carrying it
+    private final Map<String, Set<String>> taggedCollectorNumbers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+
+    /** The tags of the whole edition. */
+    public Set<String> getTags() {
+        return Collections.unmodifiableSet(tags);
+    }
+
+    /** The tags carried by single entries of the edition. */
+    public Set<String> getPrintTags() {
+        return Collections.unmodifiableSet(taggedCollectorNumbers.keySet());
+    }
+
+    public boolean hasTag(String tag) {
+        return tags.contains(tag);
+    }
+
+    /** True if the whole edition carries the tag, or the entry with the given collector number does. */
+    public boolean hasTag(String tag, String collectorNumber) {
+        if (hasTag(tag))
+            return true;
+        if (collectorNumber == null || collectorNumber.isEmpty())
+            return false;
+        Set<String> tagged = taggedCollectorNumbers.get(tag);
+        // a back face listed as "123☇" shares the tags of its front, 123
+        String number = collectorNumber.endsWith("☇") ? collectorNumber.substring(0, collectorNumber.length() - 1) : collectorNumber;
+        return tagged != null && (tagged.contains(collectorNumber.toLowerCase(Locale.ROOT))
+                || tagged.contains(number.toLowerCase(Locale.ROOT)));
+    }
+
+    private void addPrintTag(String tag, String collectorNumber) {
+        taggedCollectorNumbers.computeIfAbsent(tag, k -> new HashSet<>()).add(collectorNumber.toLowerCase(Locale.ROOT));
+    }
+
+    // case-insensitive, keeping the spelling the file uses
+    private static Set<String> parseTags(String text) {
+        Set<String> result = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        if (StringUtils.isBlank(text))
+            return result;
+        for (String t : text.split(","))
+            if (!t.isBlank())
+                result.add(t.trim());
+        return result;
+    }
 
     public Multimap<String, EditionEntry> getTokens() { return tokenMap; }
 
@@ -761,6 +853,7 @@ public final class CardEdition implements Comparable<CardEdition> {
             res.tokensCode = metadata.get("TokensCode", "T" + res.scryfallCode);
             res.tokenFallbackCode = metadata.get("TokenFallbackCode");
             res.cardsLanguage = metadata.get("CardLang", "en");
+            res.tags.addAll(parseTags(metadata.get("Tags")));
             res.boosterArts = metadata.getInt("BoosterCovers", 1);
 
             res.otherMap = otherMap;
@@ -847,21 +940,25 @@ public final class CardEdition implements Comparable<CardEdition> {
             res.borderColor = BorderColor.valueOf(metadata.get("border", "Black").toUpperCase(Locale.ENGLISH));
             res.prerelease = metadata.get("Prerelease", null);
 
+            // DraftType: governs the deck-building mode for this edition's draft (e.g. Normal or Commander)
+            res.draftType = DraftType.fromString(metadata.get("DraftType", "Normal"));
+
             // Draft options
             String doublePick = metadata.get("DoublePick", "Never");
             int maxPodSize = metadata.getInt("MaxPodSize", 8);
             int recommendedPodSize = metadata.getInt("RecommendedPodSize", 8);
             int maxMatchPlayers = metadata.getInt("MaxMatchPlayers", 2);
-            String deckType = metadata.get("DeckType", "Normal");
-            String freeCommander = metadata.get("FreeCommander", "");
+            String freeCommander = metadata.get("DraftFreeCommander", "");
+            String impliedPartner = metadata.get("DraftImpliedPartnership", "");
 
             res.draftOptions = new DraftOptions(
                     doublePick,
                     maxPodSize,
                     recommendedPodSize,
                     maxMatchPlayers,
-                    deckType,
-                    freeCommander
+                    res.draftType,
+                    freeCommander,
+                    impliedPartner
             );
 
             return res;
@@ -885,6 +982,35 @@ public final class CardEdition implements Comparable<CardEdition> {
                 initAliases(ee);
             }
         }
+        /**
+         * Reads a tag file of [Tag] sections. A line names an edition, followed by the collector numbers of its
+         * tagged prints, or by nothing when the whole edition carries the tag. 1..21 stands for 1 to 21.
+         */
+        public void loadPrintTags(File file) {
+            for (Entry<String, List<String>> section : FileSection.parseSections(FileUtil.readFile(file)).entrySet()) {
+                String tag = section.getKey();
+                for (String line : section.getValue()) {
+                    String[] words = line.split("\\s+");
+                    CardEdition edition = get(words[0]);
+                    if (edition == null)
+                        continue;
+                    if (words.length == 1)
+                        edition.tags.add(tag);
+                    for (int i = 1; i < words.length; i++) {
+                        String[] range = words[i].split("\\.\\.");
+                        Integer first = range.length == 2 ? Ints.tryParse(range[0]) : null;
+                        Integer last = range.length == 2 ? Ints.tryParse(range[1]) : null;
+                        if (first != null && last != null) {
+                            for (int n = first; n <= last; n++)
+                                edition.addPrintTag(tag, String.valueOf(n));
+                        } else {
+                            edition.addPrintTag(tag, words[i]);
+                        }
+                    }
+                }
+            }
+        }
+
         private void initAliases(CardEdition E) { //Add the alias to the edition here, to ensure it's always done equally.
             String alias = E.getAlias();
             if (null != alias)

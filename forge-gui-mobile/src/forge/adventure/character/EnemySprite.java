@@ -18,8 +18,10 @@ import forge.StaticData;
 import forge.adventure.data.DialogData;
 import forge.adventure.data.EffectData;
 import forge.adventure.data.EnemyData;
+import forge.adventure.data.ModifierData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.util.CardUtil;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.util.MapDialog;
@@ -37,6 +39,7 @@ import forge.util.Aggregates;
 import forge.util.MyRandom;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -64,6 +67,7 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
     public MapDialog defeatDialog; //Dialog to show on defeat. Overrides standard death (can be removed as an action)
     public EffectData effect; //Battle effect for this enemy. Similar to a player's blessing.
     public String nameOverride = ""; //Override name of this enemy in battles.
+    public String battleBackground = ""; //Override the battle background folder for this encounter.
     public String bossInsult = ""; //Override the generated insult text when you are defeated.
     public RewardData[] rewards; //Additional rewards for this enemy.
     public DialogData.ConditionData spawnCondition; //Condition to spawn.
@@ -84,7 +88,10 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
     public float fleeRange = 0.0f; //If range < fleeRange, attempt to move away to fleeRange
     public float speedModifier = 0.0f; // Increase or decrease default speed
     public boolean aggro = false;
+    public boolean ignoreGlobalEffect = false;
+    public boolean ignoreBiomeEffect = false;
     public boolean ignoreDungeonEffect = false;
+    public boolean ignoreExcludedSets = false;
     public String questStageID;
     private ProgressableGraphPath<NavigationVertex> navPath;
     public Vector2 fleeTarget;
@@ -105,6 +112,12 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
     public EnemySprite(int id, EnemyData enemyData) {
         super(id,enemyData.sprite);
         data = enemyData;
+        //Map object properties override these after the sprite is created.
+        effect = data.effect;
+        ignoreGlobalEffect = data.ignoreGlobalEffect;
+        ignoreBiomeEffect = data.ignoreBiomeEffect;
+        ignoreDungeonEffect = data.ignoreDungeonEffect;
+        ignoreExcludedSets = data.ignoreExcludedSets;
         float scale = data.scale;
         if (scale < 0)
             scale = 1f;
@@ -464,13 +477,22 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
             return data.getName();
         return nameOverride;
     }
+    public String getDisplayName() {
+        if (nameOverride == null || nameOverride.isEmpty())
+            return data.getDisplayName();
+        return nameOverride;
+    }
     public String getBossInsult(){
-        return data.bossInsult;
+        return data.getBossInsult();
     }
     public String getBossIntro(){
-        return data.bossIntro;
+        return data.getBossIntro();
     }
     public Array<Reward> getRewards() {
+        return ignoreExcludedSets ? Config.instance().withExclusionsLifted(this::collectRewards) : collectRewards();
+    }
+
+    private Array<Reward> collectRewards() {
         rewardCollectionPool.clear();
         // Collect custom rewards for chaos battles
 
@@ -483,7 +505,7 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
 
             for (int i = 0; i < cardCount; i++) {
                 PaperCard paperCard = sourceFlatList.get(i);
-                if (paperCard != null && !paperCard.isVeryBasicLand()) {
+                if (paperCard != null && !paperCard.isVeryBasicLand() && CardUtil.isAllowedPrint(paperCard)) {
                     flatCardsFilterList.add(paperCard);
                 }
             }
@@ -502,7 +524,7 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
                 rewardCollectionPool.add(new Reward(Reward.Type.Shards, 9));
 
                 PaperCard cheese = StaticData.instance().fetchCard("The Cheese Stands Alone");
-                if (cheese != null) {
+                if (cheese != null && CardUtil.isAllowedPrint(cheese)) {
                     rewardCollectionPool.add(new Reward(cheese));
                 }
                 return rewardCollectionPool;
@@ -513,8 +535,9 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
                 commonCards.clear();
                 rareCards.clear();
 
-                for (int i = 0; i < flatCardsFilterList.size(); i++) {
-                    PaperCard card = flatCardsFilterList.get(i);
+                List<PaperCard> deckCards = isBlockedByModifiers("deckCard") ? Collections.emptyList() : flatCardsFilterList;
+                for (int i = 0; i < deckCards.size(); i++) {
+                    PaperCard card = deckCards.get(i);
                     if (card.getRarity() == CardRarity.Uncommon || card.getRarity() == CardRarity.Special) {
                         uncommonCards.add(card);
                     } else if (card.getRarity() == CardRarity.Common) {
@@ -554,15 +577,23 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
             CardPool deckNoBasicLands = deckNoRestrictedEditions.getFilteredPool(PaperCardPredicates.fromRules(CardRulesPredicates.NOT_BASIC_LAND));
 
             for (RewardData rdata : data.rewards) {
+                if (isBlockedByModifiers(ModifierData.enemyRewardType(rdata)))
+                    continue;
                 rewardCollectionPool.addAll(rdata.generate(false, enemyDeck == null ? null : deckNoBasicLands.toFlatList(), true));
             }
         }
         if (this.rewards != null) { // Collect additional rewards.
             for (RewardData rdata : this.rewards) {
+                if (isBlockedByModifiers(ModifierData.enemyRewardType(rdata)))
+                    continue;
                 rewardCollectionPool.addAll(rdata.generate(false, (Current.latestDeck() != null ? Current.latestDeck().getMain().toFlatList() : null), true));
             }
         }
         return rewardCollectionPool;
+    }
+
+    private static boolean isBlockedByModifiers(String rewardType) {
+        return Current.player().getActiveModifiers().stream().anyMatch(modifier -> modifier.blocksEnemyReward(rewardType));
     }
 
     private void drawColorHints(Batch batch){
@@ -707,4 +738,3 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
         return _freeze;
     }
 }
-

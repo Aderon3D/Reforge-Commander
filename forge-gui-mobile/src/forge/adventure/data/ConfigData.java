@@ -28,6 +28,7 @@ public class ConfigData {
     public String[] restrictedBlocks;
     public String[] restrictedTokens;
     public String[] allowedEditions;
+    public boolean ignoreExcludedSets = false;
     public boolean vintageOnlyEditions = false;
     public String[] restrictedEvents;
     public String[] allowedEvents;
@@ -36,5 +37,11 @@ public class ConfigData {
     public boolean enableGeneticAI = true;
     public String chaosDeckFormat;
     public boolean usePriceListPrices = true;
+    // Shards to reroll an offered inn event before joining it. 0 disables rerolls.
+    public int eventRerollPrice;
+    // Desktop default only; saved player choices take precedence on every platform.
+    public boolean enableExtraBattleBackgroundsByDefault;
+    public EffectData globalEffect;
+    public ModifierData[] modifiers; //Optional rules the player can turn on at new game.
 
 }
