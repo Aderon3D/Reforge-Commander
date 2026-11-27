@@ -10,7 +10,10 @@ import forge.card.CardRenderer;
 import forge.deck.Deck;
 import forge.deck.FDeckViewer;
 import forge.error.BugReportDialog;
+import forge.game.GameView;
 import forge.gamemodes.match.HostedMatch;
+import forge.gamemodes.tutorial.TutorialLayout;
+import forge.gamemodes.tutorial.TutorialTarget;
 import forge.gui.FThreads;
 import forge.gui.GuiBase;
 import forge.gui.download.GuiDownloadService;
@@ -22,7 +25,10 @@ import forge.localinstance.skin.FSkinProp;
 import forge.localinstance.skin.ISkinImage;
 import forge.screens.LoadingOverlay;
 import forge.screens.match.MatchController;
+import forge.screens.match.MatchScreen;
 import forge.screens.quest.QuestMenu;
+import forge.screens.rogue.RogueDialog;
+import forge.screens.rogue.RogueScreen;
 import forge.screens.settings.GuiDownloader;
 import forge.sound.*;
 import forge.toolbox.FOptionPane;
@@ -30,6 +36,7 @@ import forge.toolbox.GuiChoose;
 import forge.util.*;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -68,6 +75,11 @@ public class GuiMobile implements IGuiBase {
     @Override
     public String getCurrentVersion() {
         return Forge.getDeviceAdapter().getVersionString();
+    }
+
+    @Override
+    public String getUserAgent() {
+        return "Forge/" + getCurrentVersion() + " (gui-mobile)";
     }
 
     @Override
@@ -118,6 +130,66 @@ public class GuiMobile implements IGuiBase {
     }
 
     @Override
+    public boolean isMatchInProgress() {
+        final MatchController mc = MatchController.instance;
+        final GameView gv = mc.getGameView();
+        return gv != null && !mc.isReplay() && !gv.isGameOver();
+    }
+
+    /**
+     * A match is hosted before its screen is on show: Forge.openScreen switches screens asynchronously (the old screen
+     * is asked first), so for a moment the current screen is still the home screen. A tutorial note sent in that gap
+     * has nowhere to go, so the tutorial waits for this to be true before it starts talking.
+     */
+    @Override
+    public boolean isTutorialBoardReady() {
+        return Forge.getCurrentScreen() instanceof MatchScreen screen
+                && screen.getWidth() > 0 && screen.getHeight() > 0
+                && MatchController.instance.getGameView() != null;
+    }
+
+    @Override
+    public boolean showCoach(final String title, final String text, final String nextLabel, final Runnable onNext) {
+        if (!isTutorialBoardReady()) {
+            return false; // nothing to draw on yet; the caller tries again shortly, then shows a dialog instead
+        }
+        FThreads.invokeInEdtNowOrLater(() -> {
+            if (Forge.getCurrentScreen() instanceof MatchScreen screen) {
+                screen.showCoach(title, text, nextLabel, onNext);
+            } else {
+                onNext.run(); // the match screen went away meanwhile; don't leave the tutorial waiting
+            }
+        });
+        return true;
+    }
+    @Override
+    public TutorialLayout getTutorialLayout() {
+        if (Forge.getCurrentScreen() instanceof MatchScreen screen) {
+            return screen.getTutorialLayout();
+        }
+        return Forge.isLandscapeMode() ? TutorialLayout.MOBILE_LANDSCAPE : TutorialLayout.MOBILE_PORTRAIT;
+    }
+
+    @Override
+    public void highlightGui(final Collection<TutorialTarget> targets) {
+        final List<TutorialTarget> copy = new ArrayList<>(targets);
+        FThreads.invokeInEdtNowOrLater(() -> {
+            if (Forge.getCurrentScreen() instanceof MatchScreen screen) {
+                screen.highlightTutorial(copy);
+            }
+        });
+    }
+
+    @Override
+    public void hideCoach() {
+        FThreads.invokeInEdtNowOrLater(() -> {
+            if (Forge.getCurrentScreen() instanceof MatchScreen screen) {
+                screen.hideCoach();
+            }
+        });
+    }
+
+    @Override
     public ISkinImage getSkinIcon(final FSkinProp skinProp) {
         if (skinProp == null) { return null; }
         return FSkin.getImages().get(skinProp);
@@ -155,8 +227,12 @@ public class GuiMobile implements IGuiBase {
                     }
                 } else if (paperCard != null) {
                     Texture cardImage = ImageCache.getInstance().getImage(paperCard.getCardImageKey(), false);
-                    if (cardImage != null)
+                    if (cardImage != null) {
                         g.drawCardRoundRect(cardImage, null, (background.getWidth() - cardImageWidth) / 2, (background.getHeight() - cardImageHeight) / 3.8f, cardImageWidth, cardImageHeight, false, false, 0);
+                    } else if (ImageKeys.getImageFile(paperCard.getCardImageKey()) != null) {
+                        // The picture is on disk but loads over the next frame; draw again then rather than keep this one
+                        Gdx.app.postRunnable(this::clear);
+                    }
                 }
 
                 Gdx.graphics.requestRendering(); //ensure image appears right away
@@ -168,6 +244,10 @@ public class GuiMobile implements IGuiBase {
     public void showImageDialog(final ISkinImage image, final String message, final String title) {
         if (Forge.isMobileAdventureMode) {
             FThreads.invokeInEdtNowOrLater(() -> MapStage.getInstance().showImageDialog("Achievement Earned\n"+message, (FBufferedImage)image, null));
+            return;
+        }
+        if (Forge.getCurrentScreen() instanceof RogueScreen) {
+            RogueDialog.notice((FImage) image, message, title);
             return;
         }
         new WaitCallback<Integer>() {

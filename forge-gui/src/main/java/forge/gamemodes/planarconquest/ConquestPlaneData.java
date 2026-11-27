@@ -37,6 +37,17 @@ public class ConquestPlaneData implements IXmlWritable {
         ConquestEventRecord result = eventResults[eventIndex];
         return result != null && result.hasConquered();
     }
+    public boolean hasConqueredRegion(int regionIndex) {
+        ConquestPlane plane = location.getPlane();
+        for (int row = 0; row < plane.getRowsPerRegion(); row++) {
+            for (int col = 0; col < plane.getCols(); col++) {
+                if (!hasConquered(regionIndex, row, col)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 
     public ConquestEventRecord getEventRecord(ConquestLocation loc) {
         return eventResults[loc.getEventIndex()];
@@ -103,8 +114,9 @@ public class ConquestPlaneData implements IXmlWritable {
     public int getUnlockedCardCount() {
         int count = 0;
         ConquestData model = FModel.getConquest().getModel();
-        for (PaperCard pc : location.getPlane().getCardPool().getAllCards()) {
-            if (model.hasUnlockedCard(pc)) {
+        ConquestPlane plane = location.getPlane();
+        for (PaperCard pc : plane.getCardPool().getAllCards()) {
+            if (model.hasUnlockedCard(pc) || model.hasUnlockedCard(plane.awardablePrint(pc))) {
                 count++;
             }
         }

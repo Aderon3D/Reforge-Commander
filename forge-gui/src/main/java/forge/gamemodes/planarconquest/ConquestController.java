@@ -48,8 +48,11 @@ import forge.util.storage.StorageImmediatelySerialized;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ConquestController {
     private ConquestData model;
@@ -189,6 +192,30 @@ public class ConquestController {
         activeBattle = null;
     }
 
+    /** Returns null unless this is the event's first win and it completes the region. */
+    public ConquestReward awardRegionCommander(ConquestLocation loc) {
+        ConquestPlaneData planeData = model.getCurrentPlaneData();
+        if (planeData.getEventRecord(loc).getTotalWins() != 1 || !planeData.hasConqueredRegion(loc.getRegionIndex())) {
+            return null;
+        }
+
+        // The plane keeps one printing of each commander, but boosters can unlock any printing
+        Set<String> owned = new HashSet<>();
+        model.getUnlockedCards().forEach(c -> owned.add(c.getName()));
+        List<PaperCard> pool = loc.getRegion().getCommanders().stream().map(loc.getPlane()::awardablePrint).filter(Objects::nonNull).collect(Collectors.toList());
+        List<PaperCard> locked = pool.stream().filter(c -> !owned.contains(c.getName())).collect(Collectors.toList());
+        PaperCard commander = Aggregates.random(locked.isEmpty() ? pool : locked);
+        if (commander == null) { return null; }
+
+        if (locked.isEmpty()) {
+            int shards = ConquestUtil.getShardValue(commander, CQPref.AETHER_BASE_DUPLICATE_VALUE);
+            model.rewardAEtherShards(shards);
+            return new ConquestReward(commander, shards);
+        }
+        model.unlockCard(commander);
+        return new ConquestReward(commander, 0);
+    }
+
     public List<ConquestReward> awardBooster(ConquestAwardPool pool) {
         ConquestPreferences prefs = FModel.getConquestPreferences();
         List<PaperCard> rewards = new ArrayList<>();
@@ -219,7 +246,7 @@ public class ConquestController {
         for (int i = rewards.size() - 1; i >= 0; i--) {
             int replacementShards = 0;
             PaperCard card = rewards.get(i);
-            if (model.hasUnlockedCard(card)) {
+            if (pool.isOwned(card, model)) {
                 rewards.remove(i);
                 replacementShards = ConquestUtil.getShardValue(card, CQPref.AETHER_BASE_DUPLICATE_VALUE);
                 shards += replacementShards;

@@ -8,6 +8,7 @@ import forge.adventure.data.BiomeData;
 import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
+import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.world.World;
 import forge.util.TextUtil;
@@ -72,6 +73,7 @@ public class GameScene extends HudScene {
     @Override
     public void enter() {
         MapStage.getInstance().clearIsInMap();
+        Config.instance().setPlaceIgnoresExcludedSets(false);
         Forge.clearTransitionScreen();
         Forge.clearCurrentScreen();
         super.enter();
@@ -131,10 +133,15 @@ public class GameScene extends HudScene {
     }
 
     public String getBiomeByPosition(Vector2 position) {
+        BiomeData biome = getBiomeDataByPosition(position);
+        return biome == null ? "waste" : biome.name; //shouldn't be the case but default to waste
+    }
+
+    public BiomeData getBiomeDataByPosition(Vector2 position) {
         World world = Current.world();
         int currentBiome = World.highestBiome(world.getBiomeMapXY((int) position.x / world.getTileSize(), (int) position.y / world.getTileSize()));
         List<BiomeData> biomeData = world.getData().GetBiomes();
-        return biomeData.size() <= currentBiome ? "waste" : biomeData.get(currentBiome).name; //shouldn't be the case but default to waste
+        return biomeData.size() <= currentBiome ? null : biomeData.get(currentBiome);
     }
 
     public PointOfInterest getMapPOI() {

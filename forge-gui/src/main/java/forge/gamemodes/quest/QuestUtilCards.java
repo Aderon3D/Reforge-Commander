@@ -159,7 +159,7 @@ public final class QuestUtilCards {
      * @return the array list
      */
     public List<PaperCard> generateQuestBooster(final Predicate<PaperCard> fSets) {
-        return new UnOpenedProduct(getBoosterTemplate(), questController.getAllAllowedCards().filter(fSets).toList()).get();
+        return new UnOpenedProduct(getBoosterTemplate(), questController.getAllAllowedCards().filter(fSets).collect(Collectors.toList())).get();
     }
 
     /**
@@ -300,6 +300,11 @@ public final class QuestUtilCards {
         }
     }
 
+    /** A precon or starting deck names its cards, and a hidden card is still found by name. */
+    public static boolean hasHiddenCards(final Deck deck) {
+        return deck.getAllCardsInASinglePool().toFlatList().stream().anyMatch(FModel.getMagicDb()::isHidden);
+    }
+
     /**
      * Buy precon deck.
      *
@@ -308,11 +313,11 @@ public final class QuestUtilCards {
      * @param value
      *            the value
      */
-    public void buyPreconDeck(final PreconDeck precon, final int value) {
-        if (questAssets.getCredits() >= value) {
-            questAssets.subtractCredits(value);
-            addDeck(precon.getDeck());
-        }
+    public Deck buyPreconDeck(final PreconDeck precon, final int value) {
+        if (questAssets.getCredits() < value)
+            return null;
+        questAssets.subtractCredits(value);
+        return addDeck(precon.getDeck());
     }
 
     /**
@@ -320,13 +325,20 @@ public final class QuestUtilCards {
      *
      * @param fromDeck
      *            Deck, deck to import
+     * @return the deck added: fromDeck itself, or a copy without the cards the player hides
      */
-    void addDeck(final Deck fromDeck) {
+    Deck addDeck(final Deck fromDeck) {
         if (fromDeck == null) {
-            return;
+            return null;
         }
-        questController.getMyDecks().add(fromDeck);
-        addAllCards(fromDeck.getAllCardsInASinglePool().toFlatList());
+        Deck deck = fromDeck;
+        if (hasHiddenCards(fromDeck)) {
+            deck = new Deck(fromDeck);
+            deck.forEach(section -> section.getValue().removeIf(FModel.getMagicDb()::isHidden));
+        }
+        questController.getMyDecks().add(deck);
+        addAllCards(deck.getAllCardsInASinglePool().toFlatList());
+        return deck;
     }
 
     /**
@@ -503,7 +515,7 @@ public final class QuestUtilCards {
                 // Unopened product based on format of the cards?
                 questAssets.getShopList().addAllOfTypeFlat(new UnOpenedProduct(boosterTemplate,
                         questController.getAllAllowedCards().filter(questController.getFormat().getFilterPrinted())
-                                .toList()).get());
+                                .collect(Collectors.toList())).get());
             }
         }
     }
@@ -728,7 +740,20 @@ public final class QuestUtilCards {
         if (questAssets.getShopList().isEmpty()) {
             generateCardsInShop();
         }
-        return questAssets.getShopList();
+        // the saved stock can predate the cards the player now hides, and keeps them so that unhiding brings them back
+        ItemPool<InventoryItem> shown = ItemPool.createFrom(questAssets.getShopList(), InventoryItem.class);
+        shown.removeIf(item -> item instanceof PaperCard card && FModel.getMagicDb().isHidden(card));
+        return shown;
+    }
+
+    /** Takes items bought from the shop list out of the saved stock, which {@link #getShopList()} only copies. */
+    public void removeFromShop(final Iterable<Entry<InventoryItem, Integer>> items) {
+        questAssets.getShopList().removeAll(items);
+    }
+
+    /** Puts items sold to the shop into the saved stock, which {@link #getShopList()} only copies. */
+    public void addToShop(final Iterable<Entry<InventoryItem, Integer>> items) {
+        questAssets.getShopList().addAll(items);
     }
 
     /**
@@ -791,7 +816,7 @@ public final class QuestUtilCards {
 
         // get all cards in the specified edition
         Predicate<PaperCard> filter = PaperCardPredicates.printedInSet(edition);
-        Iterable<PaperCard> editionCards = questController.getAllAllowedCards().filter(filter).toList();
+        Iterable<PaperCard> editionCards = questController.getAllAllowedCards().filter(filter).collect(Collectors.toList());
 
         // For editions such as MB1 which only contains PLST cards.
         if (!editionCards.iterator().hasNext()) {

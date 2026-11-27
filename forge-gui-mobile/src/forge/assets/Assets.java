@@ -22,6 +22,7 @@ import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGeneratorLoader;
 import com.badlogic.gdx.graphics.g2d.freetype.FreetypeFontLoader;
 import com.badlogic.gdx.graphics.glutils.FrameBuffer;
 import com.badlogic.gdx.utils.Disposable;
+import com.badlogic.gdx.utils.GdxRuntimeException;
 import com.badlogic.gdx.utils.ObjectMap;
 import com.github.tommyettinger.textra.Font;
 import forge.Forge;
@@ -104,6 +105,12 @@ public class Assets implements Disposable {
     private GifAnimation gifAnimation;
     private boolean isDisposed = false;
     private int miniMapID;
+    private String transformAtlasPath;
+    private TextureAtlas transformAtlas;
+    private boolean transformAtlasFailed;
+    private String topMenuAtlasPath;
+    private TextureAtlas topMenuAtlas;
+    private boolean topMenuAtlasFailed;
     private static final String COUNTER_FONT_FILE = "Roboto-Bold.ttf";
     private static final String COUNTER_FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890./-+:'!—";
 
@@ -152,7 +159,7 @@ public class Assets implements Disposable {
         }
         Forge.safeDispose(
             defaultImage, blackTexture, whiteTexture, backdropTexture, grayTexture, coinHead, coinTail,
-            cardFrameBuffer, itemFrameBuffer, gifAnimation, miniMapTexture);
+            cardFrameBuffer, itemFrameBuffer, gifAnimation, miniMapTexture, transformAtlas, topMenuAtlas);
         if (cardArtCache != null)
             cardArtCache.clear();
         if (avatarImages != null)
@@ -251,8 +258,16 @@ public class Assets implements Disposable {
         if (manager == null) {
             HybridFileHandleResolver resolver = new HybridFileHandleResolver();
             manager = new MemoryTrackingAssetManager(resolver);
+            manager.setLoader(Texture.class, new GreyscaleTextureLoader(resolver));
             manager.setLoader(FreeTypeFontGenerator.class, new FreeTypeFontGeneratorLoader(resolver));
             manager.setLoader(BitmapFont.class, ".ttf", new FreetypeFontLoader(resolver));
+            manager.setErrorListener((asset, throwable) -> {
+                if (ImageCache.handleAssetLoadError(asset.fileName, asset.type, throwable)) {
+                    return;
+                }
+                // Preserve the existing fail-fast behavior for unrelated assets.
+                throw new GdxRuntimeException("Error loading asset: " + asset.fileName, throwable);
+            });
         }
         return manager;
     }
@@ -507,6 +522,80 @@ public class Assets implements Disposable {
             coinTail = getTexture(getDefaultSkinFile("coin_tails.png"));
         }
         return coinTail;
+    }
+
+    public TextureAtlas getTransformAtlas() {
+        if (isDisposed || transformAtlasFailed)
+            return null;
+        try {
+            if (transformAtlasPath == null && transformAtlas == null) {
+                FileHandle file = getDefaultSkinFile("sprite_transform.atlas");
+                if (file == null || !file.exists()) {
+                    transformAtlasFailed = true;
+                    return null;
+                }
+                if (FileType.Absolute.equals(file.type())) {
+                    transformAtlasPath = file.path();
+                } else { //inside an apk or jar, the asset manager can't see it
+                    transformAtlas = new TextureAtlas(file);
+                    smoothAtlas(transformAtlas);
+                }
+            }
+            if (transformAtlas != null)
+                return transformAtlas;
+            TextureAtlas atlas = manager().get(transformAtlasPath, TextureAtlas.class, false);
+            if (atlas == null) {
+                manager().load(transformAtlasPath, TextureAtlas.class);
+                manager().finishLoadingAsset(transformAtlasPath);
+                atlas = manager().get(transformAtlasPath, TextureAtlas.class);
+                smoothAtlas(atlas);
+            }
+            return atlas;
+        } catch (Exception e) {
+            transformAtlasFailed = true;
+            System.err.println("Failed to load sprite_transform.atlas: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** Icons of the match screen's top menu in the compact layout: topmenu.atlas next to sprite_transform.atlas in the default skin folder. */
+    public TextureAtlas getTopMenuAtlas() {
+        if (isDisposed || topMenuAtlasFailed)
+            return null;
+        try {
+            if (topMenuAtlasPath == null && topMenuAtlas == null) {
+                FileHandle file = getDefaultSkinFile("topmenu.atlas");
+                if (file == null || !file.exists()) {
+                    topMenuAtlasFailed = true;
+                    return null;
+                }
+                if (FileType.Absolute.equals(file.type())) {
+                    topMenuAtlasPath = file.path();
+                } else { //inside an apk or jar, the asset manager can't see it
+                    topMenuAtlas = new TextureAtlas(file);
+                    smoothAtlas(topMenuAtlas);
+                }
+            }
+            if (topMenuAtlas != null)
+                return topMenuAtlas;
+            TextureAtlas atlas = manager().get(topMenuAtlasPath, TextureAtlas.class, false);
+            if (atlas == null) {
+                manager().load(topMenuAtlasPath, TextureAtlas.class);
+                manager().finishLoadingAsset(topMenuAtlasPath);
+                atlas = manager().get(topMenuAtlasPath, TextureAtlas.class);
+                smoothAtlas(atlas);
+            }
+            return atlas;
+        } catch (Exception e) {
+            topMenuAtlasFailed = true;
+            System.err.println("Failed to load topmenu.atlas: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void smoothAtlas(TextureAtlas atlas) {
+        for (Texture t : atlas.getTextures())
+            t.setFilter(getTextureFilter().minFilter, getTextureFilter().magFilter);
     }
 
     public Texture getHolofoil() {
